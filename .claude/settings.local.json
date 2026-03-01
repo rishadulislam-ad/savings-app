@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(gh auth status)",
+      "Bash(git --version)",
+      "Bash(ssh -T git@github.com)",
+      "Bash(git config --global user.name)",
+      "Bash(git config --global user.email)"
+    ]
+  }
+}

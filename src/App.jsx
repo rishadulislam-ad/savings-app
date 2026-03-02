@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import StatusBar from './components/StatusBar';
 import BottomNav from './components/BottomNav';
 import HomeScreen from './screens/HomeScreen';
@@ -8,16 +9,14 @@ import BudgetsScreen from './screens/BudgetsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import { INITIAL_TRANSACTIONS } from './data/transactions';
 
-export default function App() {
+function AppInner() {
+  const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState('home');
   const [showAdd, setShowAdd] = useState(false);
   const [transactions, setTransactions] = useState(INITIAL_TRANSACTIONS);
 
   function handleSave(tx) {
-    setTransactions(prev => [
-      { ...tx, id: Date.now() },
-      ...prev,
-    ]);
+    setTransactions(prev => [{ ...tx, id: Date.now() }, ...prev]);
   }
 
   function renderScreen() {
@@ -39,7 +38,7 @@ export default function App() {
   }
 
   return (
-    <div className="phone-shell">
+    <div className={`phone-shell ${isDark ? 'dark' : ''}`}>
       <div className="screen">
         <StatusBar />
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
@@ -54,5 +53,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
   );
 }

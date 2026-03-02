@@ -17,25 +17,86 @@ export const WALLETS = [
   { id: 'cash',    label: 'Cash',          icon: '💵', balance: 340.00 },
 ];
 
-export const INITIAL_TRANSACTIONS = [
-  { id: 1,  type: 'expense', amount: 22.55, category: 'eating_out',    title: 'Burger Palace',     date: '2026-03-02', wallet: 'main',    tags: ['lunch'] },
-  { id: 2,  type: 'expense', amount: 22.55, category: 'eating_out',    title: 'Morning Coffee',    date: '2026-03-02', wallet: 'main',    tags: ['coffee'] },
-  { id: 3,  type: 'expense', amount: 289.96,category: 'childcare',     title: 'Daycare Fee',       date: '2026-03-01', wallet: 'main',    tags: ['family'] },
-  { id: 4,  type: 'expense', amount: 142.08,category: 'groceries',     title: 'Weekly Groceries',  date: '2026-03-01', wallet: 'main',    tags: ['food', 'weekly'] },
-  { id: 5,  type: 'expense', amount: 25.35, category: 'transport',     title: 'Monthly Transit',   date: '2026-03-01', wallet: 'main',    tags: [] },
-  { id: 6,  type: 'income',  amount: 3200,  category: 'salary',        title: 'March Salary',      date: '2026-03-01', wallet: 'main',    tags: ['work'] },
-  { id: 7,  type: 'expense', amount: 18.99, category: 'entertainment', title: 'Netflix',           date: '2026-02-28', wallet: 'main',    tags: ['subscriptions'] },
-  { id: 8,  type: 'expense', amount: 67.40, category: 'shopping',      title: 'ZARA',              date: '2026-02-27', wallet: 'main',    tags: ['clothes'] },
-  { id: 9,  type: 'expense', amount: 45.00, category: 'health',        title: 'Gym Membership',    date: '2026-02-26', wallet: 'main',    tags: ['health'] },
-  { id: 10, type: 'income',  amount: 850,   category: 'freelance',     title: 'Design Project',    date: '2026-02-25', wallet: 'main',    tags: ['work'] },
-  { id: 11, type: 'expense', amount: 12.50, category: 'eating_out',    title: 'Sushi Bar',         date: '2026-02-24', wallet: 'cash',    tags: ['dinner'] },
-  { id: 12, type: 'expense', amount: 89.99, category: 'groceries',     title: 'Whole Foods',       date: '2026-02-23', wallet: 'main',    tags: ['food'] },
+export const CURRENCIES = [
+  // Popular
+  { code: 'USD', symbol: '$',   name: 'US Dollar',          flag: '🇺🇸', region: 'Popular' },
+  { code: 'EUR', symbol: '€',   name: 'Euro',               flag: '🇪🇺', region: 'Popular' },
+  { code: 'GBP', symbol: '£',   name: 'British Pound',      flag: '🇬🇧', region: 'Popular' },
+  { code: 'JPY', symbol: '¥',   name: 'Japanese Yen',       flag: '🇯🇵', region: 'Popular' },
+  { code: 'CAD', symbol: 'CA$', name: 'Canadian Dollar',    flag: '🇨🇦', region: 'Popular' },
+  { code: 'AUD', symbol: 'A$',  name: 'Australian Dollar',  flag: '🇦🇺', region: 'Popular' },
+  { code: 'CHF', symbol: 'Fr',  name: 'Swiss Franc',        flag: '🇨🇭', region: 'Popular' },
+  { code: 'CNY', symbol: '¥',   name: 'Chinese Yuan',       flag: '🇨🇳', region: 'Popular' },
+  // South Asia
+  { code: 'BDT', symbol: '৳',   name: 'Bangladeshi Taka',   flag: '🇧🇩', region: 'South Asia' },
+  { code: 'INR', symbol: '₹',   name: 'Indian Rupee',       flag: '🇮🇳', region: 'South Asia' },
+  { code: 'PKR', symbol: '₨',   name: 'Pakistani Rupee',    flag: '🇵🇰', region: 'South Asia' },
+  { code: 'LKR', symbol: 'Rs',  name: 'Sri Lankan Rupee',   flag: '🇱🇰', region: 'South Asia' },
+  { code: 'NPR', symbol: 'Rs',  name: 'Nepalese Rupee',     flag: '🇳🇵', region: 'South Asia' },
+  // Middle East
+  { code: 'AED', symbol: 'د.إ', name: 'UAE Dirham',         flag: '🇦🇪', region: 'Middle East' },
+  { code: 'SAR', symbol: '﷼',   name: 'Saudi Riyal',        flag: '🇸🇦', region: 'Middle East' },
+  { code: 'QAR', symbol: '﷼',   name: 'Qatari Riyal',       flag: '🇶🇦', region: 'Middle East' },
+  { code: 'KWD', symbol: 'K.D', name: 'Kuwaiti Dinar',      flag: '🇰🇼', region: 'Middle East' },
+  // Southeast Asia
+  { code: 'SGD', symbol: 'S$',  name: 'Singapore Dollar',   flag: '🇸🇬', region: 'Southeast Asia' },
+  { code: 'MYR', symbol: 'RM',  name: 'Malaysian Ringgit',  flag: '🇲🇾', region: 'Southeast Asia' },
+  { code: 'THB', symbol: '฿',   name: 'Thai Baht',          flag: '🇹🇭', region: 'Southeast Asia' },
+  { code: 'IDR', symbol: 'Rp',  name: 'Indonesian Rupiah',  flag: '🇮🇩', region: 'Southeast Asia' },
+  { code: 'PHP', symbol: '₱',   name: 'Philippine Peso',    flag: '🇵🇭', region: 'Southeast Asia' },
+  { code: 'VND', symbol: '₫',   name: 'Vietnamese Dong',    flag: '🇻🇳', region: 'Southeast Asia' },
+  // East Asia
+  { code: 'KRW', symbol: '₩',   name: 'South Korean Won',   flag: '🇰🇷', region: 'East Asia' },
+  { code: 'HKD', symbol: 'HK$', name: 'Hong Kong Dollar',   flag: '🇭🇰', region: 'East Asia' },
+  { code: 'TWD', symbol: 'NT$', name: 'Taiwan Dollar',      flag: '🇹🇼', region: 'East Asia' },
+  // Americas
+  { code: 'BRL', symbol: 'R$',  name: 'Brazilian Real',     flag: '🇧🇷', region: 'Americas' },
+  { code: 'MXN', symbol: 'MX$', name: 'Mexican Peso',       flag: '🇲🇽', region: 'Americas' },
+  { code: 'ARS', symbol: '$',   name: 'Argentine Peso',     flag: '🇦🇷', region: 'Americas' },
+  { code: 'CLP', symbol: '$',   name: 'Chilean Peso',       flag: '🇨🇱', region: 'Americas' },
+  // Europe
+  { code: 'SEK', symbol: 'kr',  name: 'Swedish Krona',      flag: '🇸🇪', region: 'Europe' },
+  { code: 'NOK', symbol: 'kr',  name: 'Norwegian Krone',    flag: '🇳🇴', region: 'Europe' },
+  { code: 'DKK', symbol: 'kr',  name: 'Danish Krone',       flag: '🇩🇰', region: 'Europe' },
+  { code: 'PLN', symbol: 'zł',  name: 'Polish Zloty',       flag: '🇵🇱', region: 'Europe' },
+  { code: 'TRY', symbol: '₺',   name: 'Turkish Lira',       flag: '🇹🇷', region: 'Europe' },
+  { code: 'RUB', symbol: '₽',   name: 'Russian Ruble',      flag: '🇷🇺', region: 'Europe' },
+  // Africa
+  { code: 'ZAR', symbol: 'R',   name: 'South African Rand', flag: '🇿🇦', region: 'Africa' },
+  { code: 'NGN', symbol: '₦',   name: 'Nigerian Naira',     flag: '🇳🇬', region: 'Africa' },
+  { code: 'EGP', symbol: '£',   name: 'Egyptian Pound',     flag: '🇪🇬', region: 'Africa' },
+  { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling',    flag: '🇰🇪', region: 'Africa' },
 ];
 
-export function formatCurrency(amount, withSign = false) {
-  const formatted = new Intl.NumberFormat('en-US', {
-    style: 'currency', currency: 'USD', minimumFractionDigits: 2,
-  }).format(Math.abs(amount));
+export const INITIAL_TRANSACTIONS = [
+  { id: 1,  type: 'expense', amount: 22.55,  category: 'eating_out',    title: 'Burger Palace',    date: '2026-03-02', wallet: 'main',  tags: ['lunch'] },
+  { id: 2,  type: 'expense', amount: 22.55,  category: 'eating_out',    title: 'Morning Coffee',   date: '2026-03-02', wallet: 'main',  tags: ['coffee'] },
+  { id: 3,  type: 'expense', amount: 289.96, category: 'childcare',     title: 'Daycare Fee',      date: '2026-03-01', wallet: 'main',  tags: ['family'] },
+  { id: 4,  type: 'expense', amount: 142.08, category: 'groceries',     title: 'Weekly Groceries', date: '2026-03-01', wallet: 'main',  tags: ['food', 'weekly'] },
+  { id: 5,  type: 'expense', amount: 25.35,  category: 'transport',     title: 'Monthly Transit',  date: '2026-03-01', wallet: 'main',  tags: [] },
+  { id: 6,  type: 'income',  amount: 3200,   category: 'salary',        title: 'March Salary',     date: '2026-03-01', wallet: 'main',  tags: ['work'] },
+  { id: 7,  type: 'expense', amount: 18.99,  category: 'entertainment', title: 'Netflix',          date: '2026-02-28', wallet: 'main',  tags: ['subscriptions'] },
+  { id: 8,  type: 'expense', amount: 67.40,  category: 'shopping',      title: 'ZARA',             date: '2026-02-27', wallet: 'main',  tags: ['clothes'] },
+  { id: 9,  type: 'expense', amount: 45.00,  category: 'health',        title: 'Gym Membership',   date: '2026-02-26', wallet: 'main',  tags: ['health'] },
+  { id: 10, type: 'income',  amount: 850,    category: 'freelance',     title: 'Design Project',   date: '2026-02-25', wallet: 'main',  tags: ['work'] },
+  { id: 11, type: 'expense', amount: 12.50,  category: 'eating_out',    title: 'Sushi Bar',        date: '2026-02-24', wallet: 'cash',  tags: ['dinner'] },
+  { id: 12, type: 'expense', amount: 89.99,  category: 'groceries',     title: 'Whole Foods',      date: '2026-02-23', wallet: 'main',  tags: ['food'] },
+];
+
+export function formatCurrency(amount, currencyCode = 'USD', withSign = false) {
+  const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
+  // Use Intl for currencies it supports, fallback to manual symbol for others
+  let formatted;
+  try {
+    formatted = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+      minimumFractionDigits: currencyCode === 'JPY' || currencyCode === 'KRW' || currencyCode === 'VND' || currencyCode === 'IDR' ? 0 : 2,
+    }).format(Math.abs(amount));
+  } catch {
+    const num = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    formatted = `${cur.symbol}${num}`;
+  }
   if (!withSign) return formatted;
   return amount < 0 ? `- ${formatted}` : `+ ${formatted}`;
 }

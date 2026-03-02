@@ -26,7 +26,7 @@ export default function DonutChart({ data, size = 140, stroke = 28, centerLabel,
         <circle
           cx={cx} cy={cy} r={r}
           fill="none"
-          stroke="#F0F2F8"
+          stroke="var(--surface2)"
           strokeWidth={stroke}
         />
         {slices.map((s, i) => (
@@ -48,10 +48,10 @@ export default function DonutChart({ data, size = 140, stroke = 28, centerLabel,
         display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center',
       }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', letterSpacing: '0.02em' }}>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.02em' }}>
           {centerSub}
         </span>
-        <span style={{ fontSize: 18, fontWeight: 800, color: '#0D1117', letterSpacing: '-0.5px', marginTop: 2 }}>
+        <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginTop: 2 }}>
           {centerLabel}
         </span>
       </div>

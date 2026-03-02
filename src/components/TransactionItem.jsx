@@ -1,6 +1,8 @@
 import { CATEGORIES, formatCurrency } from '../data/transactions';
+import { useTheme } from '../context/ThemeContext';
 
 export default function TransactionItem({ tx, onClick }) {
+  const { currency } = useTheme();
   const cat = CATEGORIES[tx.category] || CATEGORIES.other;
   const date = new Date(tx.date);
   const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -15,7 +17,7 @@ export default function TransactionItem({ tx, onClick }) {
         <div className="tx-meta">{cat.label} · {dateStr}</div>
       </div>
       <div className={`tx-amount ${tx.type}`}>
-        {tx.type === 'expense' ? '−' : '+'}{formatCurrency(tx.amount)}
+        {tx.type === 'expense' ? '−' : '+'}{formatCurrency(tx.amount, currency)}
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { CATEGORIES, formatCurrency, groupByCategory } from '../data/transactions';
+import { useTheme } from '../context/ThemeContext';
 
 const BUDGETS = [
   { cat: 'eating_out',    budget: 300 },
@@ -11,6 +12,7 @@ const BUDGETS = [
 ];
 
 export default function BudgetsScreen({ transactions }) {
+  const { currency } = useTheme();
   const byCategory = useMemo(() => groupByCategory(transactions), [transactions]);
   const spendMap = Object.fromEntries(byCategory.map(c => [c.cat, c.total]));
 
@@ -37,10 +39,10 @@ export default function BudgetsScreen({ transactions }) {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', margin: '8px 0 12px' }}>
             <div style={{ fontSize: 32, fontWeight: 800, color: '#fff', letterSpacing: '-1px' }}>
-              {formatCurrency(totalSpent)}
+              {formatCurrency(totalSpent, currency)}
             </div>
             <div style={{ textAlign: 'right', color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>
-              of {formatCurrency(totalBudget)}
+              of {formatCurrency(totalBudget, currency)}
             </div>
           </div>
           <div style={{ height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
@@ -55,7 +57,7 @@ export default function BudgetsScreen({ transactions }) {
               {Math.round(overallPct)}% used
             </span>
             <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: 600 }}>
-              {formatCurrency(remaining)} left
+              {formatCurrency(remaining, currency)} left
             </span>
           </div>
         </div>
@@ -109,8 +111,8 @@ export default function BudgetsScreen({ transactions }) {
                     color: over ? 'var(--danger)' : 'var(--success)',
                   }}>
                     {over
-                      ? `${formatCurrency(spent - b.budget)} over`
-                      : `${formatCurrency(b.budget - spent)} left`}
+                      ? `${formatCurrency(spent - b.budget, currency)} over`
+                      : `${formatCurrency(b.budget - spent, currency)} left`}
                   </span>
                 </div>
               </div>

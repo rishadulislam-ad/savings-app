@@ -3,15 +3,16 @@ import { CATEGORIES, WALLETS } from '../data/transactions';
 
 const TAGS = ['Food', 'Work', 'Family', 'Health', 'Fun', 'Travel', 'Bills', 'Gifts'];
 
-export default function AddTransactionScreen({ onClose, onSave }) {
-  const [type, setType] = useState('expense');
-  const [amount, setAmount] = useState('');
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('eating_out');
-  const [wallet, setWallet] = useState('main');
-  const [tags, setTags] = useState([]);
-  const [note, setNote] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx }) {
+  const isEditing = !!initialTx;
+  const [type, setType] = useState(initialTx?.type || 'expense');
+  const [amount, setAmount] = useState(initialTx ? String(initialTx.amount) : '');
+  const [title, setTitle] = useState(initialTx?.title || '');
+  const [category, setCategory] = useState(initialTx?.category || 'eating_out');
+  const [wallet, setWallet] = useState(initialTx?.wallet || 'main');
+  const [tags, setTags] = useState(initialTx?.tags || []);
+  const [note, setNote] = useState(initialTx?.note || '');
+  const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
 
   const expenseCategories = ['eating_out', 'groceries', 'transport', 'entertainment', 'health', 'shopping', 'childcare', 'other'];
   const incomeCategories  = ['salary', 'freelance', 'other'];
@@ -52,7 +53,7 @@ export default function AddTransactionScreen({ onClose, onSave }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
       {/* Header */}
       <div style={{
-        padding: '0 20px 0', background: 'var(--surface)',
+        padding: '48px 20px 0', background: 'var(--surface)',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
@@ -64,15 +65,24 @@ export default function AddTransactionScreen({ onClose, onSave }) {
               <path d="M11 4L6 9L11 14" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>Add Transaction</span>
-          <button onClick={handleSave} style={{
-            background: 'var(--accent)', border: 'none', padding: '8px 16px',
-            borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#fff',
-            opacity: (!amount || parseFloat(amount) <= 0) ? 0.5 : 1,
-            transition: 'opacity 0.2s',
-          }}>
-            Save
-          </button>
+          <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>{isEditing ? 'Edit Transaction' : 'Add Transaction'}</span>
+          {isEditing ? (
+            <button onClick={() => onDelete(initialTx.id)} style={{
+              background: '#FF4444', border: 'none', padding: '8px 16px',
+              borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#fff',
+            }}>
+              Delete
+            </button>
+          ) : (
+            <button onClick={handleSave} style={{
+              background: 'var(--accent)', border: 'none', padding: '8px 16px',
+              borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#fff',
+              opacity: (!amount || parseFloat(amount) <= 0) ? 0.5 : 1,
+              transition: 'opacity 0.2s',
+            }}>
+              Save
+            </button>
+          )}
         </div>
 
         {/* Type Toggle */}
@@ -238,7 +248,7 @@ export default function AddTransactionScreen({ onClose, onSave }) {
 
         {/* Save Button */}
         <button className="btn-primary" onClick={handleSave}>
-          {type === 'expense' ? '− Add Expense' : '+ Add Income'}
+          {isEditing ? 'Save Changes' : (type === 'expense' ? '− Add Expense' : '+ Add Income')}
         </button>
       </div>
     </div>

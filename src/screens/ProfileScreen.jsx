@@ -12,7 +12,7 @@ const OTHER_SETTINGS = [
   { icon: '⭐', label: 'Rate Findo',      sub: 'Love the app?' },
 ];
 
-export default function ProfileScreen({ transactions }) {
+export default function ProfileScreen({ transactions, currentUser, onLogout }) {
   const { isDark, toggleTheme, currency, setCurrency } = useTheme();
   const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
 
@@ -24,7 +24,7 @@ export default function ProfileScreen({ transactions }) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       {/* Header */}
-      <div style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div style={{ padding: '48px 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Profile</div>
       </div>
 
@@ -40,8 +40,8 @@ export default function ProfileScreen({ transactions }) {
           }}>
             🧑‍💼
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>Alex Johnson</div>
-          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2 }}>alex@example.com</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>{currentUser?.name || 'User'}</div>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2 }}>{currentUser?.email || ''}</div>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--success)', letterSpacing: '-0.5px' }}>
@@ -71,7 +71,7 @@ export default function ProfileScreen({ transactions }) {
           Settings
         </div>
 
-        <div className="card anim-fadeup" style={{ padding: '0 16px', marginBottom: 16, animationDelay: '0.05s' }}>
+        <div className="card anim-fadeup" style={{ padding: '0 16px', marginBottom: 16, animationDelay: '0.06s' }}>
 
           {/* Dark Mode Toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
@@ -155,7 +155,7 @@ export default function ProfileScreen({ transactions }) {
         </div>
 
         {/* Sign Out */}
-        <button style={{
+        <button onClick={onLogout} style={{
           width: '100%', padding: '14px',
           background: isDark ? 'rgba(255,90,90,0.1)' : '#FFF0F0',
           border: `1.5px solid ${isDark ? 'rgba(255,90,90,0.25)' : '#FECACA'}`,

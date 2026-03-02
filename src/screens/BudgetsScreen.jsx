@@ -11,9 +11,36 @@ const BUDGETS = [
   { cat: 'shopping',      budget: 200 },
 ];
 
-export default function BudgetsScreen({ transactions }) {
+const DATE_PERIODS = [
+  { id: 'today', label: 'Today' },
+  { id: 'week',  label: 'This Week' },
+  { id: 'month', label: 'This Month' },
+  { id: 'all',   label: 'All Time' },
+];
+
+function filterByPeriod(transactions, period) {
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  if (period === 'today') return transactions.filter(t => t.date === today);
+  if (period === 'week') {
+    const day = now.getDay();
+    const mon = new Date(now);
+    mon.setDate(now.getDate() - ((day + 6) % 7));
+    const monStr = mon.toISOString().slice(0, 10);
+    return transactions.filter(t => t.date >= monStr && t.date <= today);
+  }
+  if (period === 'month') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    return transactions.filter(t => t.date >= firstDay && t.date <= today);
+  }
+  return transactions;
+}
+
+export default function BudgetsScreen({ transactions, datePeriod, onPeriodChange }) {
   const { currency } = useTheme();
-  const byCategory = useMemo(() => groupByCategory(transactions), [transactions]);
+
+  const filtered = useMemo(() => filterByPeriod(transactions, datePeriod), [transactions, datePeriod]);
+  const byCategory = useMemo(() => groupByCategory(filtered), [filtered]);
   const spendMap = Object.fromEntries(byCategory.map(c => [c.cat, c.total]));
 
   const totalBudget  = BUDGETS.reduce((s, b) => s + b.budget, 0);
@@ -24,11 +51,28 @@ export default function BudgetsScreen({ transactions }) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: 4 }}>
+      <div style={{ padding: '48px 20px 12px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: 12 }}>
           Budgets
         </div>
-        <div style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>March 2026</div>
+        <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4 }}>
+          {DATE_PERIODS.map(p => (
+            <button
+              key={p.id}
+              onClick={() => onPeriodChange(p.id)}
+              style={{
+                padding: '6px 14px', borderRadius: 20, border: '1.5px solid',
+                borderColor: datePeriod === p.id ? 'var(--accent)' : 'var(--border)',
+                background: datePeriod === p.id ? 'var(--accent)' : 'transparent',
+                color: datePeriod === p.id ? '#fff' : 'var(--text-secondary)',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                transition: 'all 0.15s', whiteSpace: 'nowrap', flexShrink: 0,
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="screen-content" style={{ padding: '16px 20px 24px' }}>
@@ -75,7 +119,7 @@ export default function BudgetsScreen({ transactions }) {
             const leftPct = Math.round((1 - spent / b.budget) * 100);
 
             return (
-              <div key={b.cat} className="card anim-fadeup" style={{ padding: '14px 16px', animationDelay: `${i * 0.05}s` }}>
+              <div key={b.cat} className="card anim-fadeup" style={{ padding: '14px 16px', animationDelay: `${i * 0.06}s` }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: cat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
                     {cat.icon}

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import DonutChart from '../components/DonutChart';
 import TransactionItem from '../components/TransactionItem';
-import { CATEGORIES, WALLETS, formatCurrency, groupByCategory } from '../data/transactions';
+import { CATEGORIES, formatCurrency, groupByCategory } from '../data/transactions';
 import { useTheme } from '../context/ThemeContext';
 
 const DATE_PERIODS = [
@@ -13,11 +13,6 @@ const DATE_PERIODS = [
 
 const VIEW_MODES = ['All', 'Expense', 'Income'];
 
-const CARD_GRADIENTS = [
-  'linear-gradient(135deg, #1A7FFF 0%, #0052CC 100%)',
-  'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-  'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
-];
 
 function filterByPeriod(transactions, period) {
   const now = new Date();
@@ -47,10 +42,9 @@ function groupIncomeByCategory(transactions) {
     .sort((a, b) => b.total - a.total);
 }
 
-export default function HomeScreen({ transactions }) {
+export default function HomeScreen({ transactions, onEdit, onNavigate, datePeriod, onPeriodChange, currentUser }) {
   const { currency } = useTheme();
   const [viewMode, setViewMode] = useState('All');
-  const [datePeriod, setDatePeriod] = useState('month');
 
   const filtered = useMemo(() => filterByPeriod(transactions, datePeriod), [transactions, datePeriod]);
 
@@ -64,7 +58,6 @@ export default function HomeScreen({ transactions }) {
   );
   const netBalance = totalIncome - totalExpense;
 
-  const totalWallets = WALLETS.reduce((s, w) => s + w.balance, 0);
 
   const expenseByCategory = useMemo(() => groupByCategory(filtered), [filtered]);
   const incomeByCategory  = useMemo(() => groupIncomeByCategory(filtered), [filtered]);
@@ -90,7 +83,7 @@ export default function HomeScreen({ transactions }) {
 
   // Summary card values per mode
   const summaryConfig = {
-    All:     { title: 'Total Balance',  amount: totalWallets + netBalance, color: '#fff' },
+    All:     { title: 'Net Balance',  amount: netBalance, color: '#fff' },
     Expense: { title: 'Total Spent',    amount: totalExpense,               color: '#FFB3B3' },
     Income:  { title: 'Total Income',   amount: totalIncome,                color: '#B3FFD9' },
   };
@@ -99,12 +92,12 @@ export default function HomeScreen({ transactions }) {
   const savingsPct = totalIncome > 0 ? Math.round((netBalance / totalIncome) * 100) : 0;
 
   return (
-    <div className="screen-content" style={{ padding: '0 20px 20px' }}>
+    <div className="screen-content" style={{ padding: '48px 20px 20px' }}>
 
       {/* Header */}
       <div className="anim-fadeup" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
-          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 500 }}>Hi Alex 👋</div>
+          <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 500 }}>Hi {currentUser?.name?.split(' ')[0] || 'there'} 👋</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginTop: 2 }}>
             {greet}
           </div>
@@ -120,11 +113,11 @@ export default function HomeScreen({ transactions }) {
       </div>
 
       {/* Date Period Chips */}
-      <div className="anim-fadeup" style={{ display: 'flex', gap: 8, marginBottom: 14, animationDelay: '0.03s' }}>
+      <div className="anim-fadeup" style={{ display: 'flex', gap: 8, marginBottom: 14, animationDelay: '0.06s' }}>
         {DATE_PERIODS.map(p => (
           <button
             key={p.id}
-            onClick={() => setDatePeriod(p.id)}
+            onClick={() => onPeriodChange(p.id)}
             style={{
               padding: '6px 14px',
               borderRadius: 20,
@@ -145,7 +138,7 @@ export default function HomeScreen({ transactions }) {
       {/* 3-Segment Toggle + Summary Card */}
       <div
         className="summary-card anim-fadeup"
-        style={{ animationDelay: '0.06s', marginBottom: 20, padding: 0, overflow: 'hidden' }}
+        style={{ animationDelay: '0.12s', marginBottom: 20, padding: 0, overflow: 'hidden' }}
       >
         {/* Segment Toggle */}
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.18)' }}>
@@ -247,56 +240,6 @@ export default function HomeScreen({ transactions }) {
         </div>
       </div>
 
-      {/* My Cards */}
-      <div className="anim-fadeup" style={{ marginBottom: 16, animationDelay: '0.12s' }}>
-        <div className="section-header" style={{ marginBottom: 12 }}>
-          <span className="section-title">My Cards</span>
-          <button className="section-action">Manage</button>
-        </div>
-        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 4 }}>
-          {WALLETS.map((w, i) => (
-            <div
-              key={w.id}
-              style={{
-                flexShrink: 0,
-                width: 185,
-                background: CARD_GRADIENTS[i % CARD_GRADIENTS.length],
-                borderRadius: 18,
-                padding: '18px 18px 16px',
-                color: '#fff',
-                boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
-                position: 'relative',
-                overflow: 'hidden',
-                cursor: 'pointer',
-              }}
-            >
-              {/* Decorative circles */}
-              <div style={{
-                position: 'absolute', right: -18, top: -18,
-                width: 90, height: 90, borderRadius: '50%',
-                background: 'rgba(255,255,255,0.1)',
-                pointerEvents: 'none',
-              }} />
-              <div style={{
-                position: 'absolute', right: 12, bottom: -28,
-                width: 70, height: 70, borderRadius: '50%',
-                background: 'rgba(255,255,255,0.07)',
-                pointerEvents: 'none',
-              }} />
-              <div style={{ fontSize: 22, marginBottom: 10 }}>{w.icon}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.65)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                {w.label}
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.5px', marginTop: 5 }}>
-                {formatCurrency(w.balance, currency)}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 10, letterSpacing: '0.2em' }}>
-                •••• •••• {String(1234 + i * 1111).slice(-4)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {/* Breakdown (donut + categories) */}
       {donutData.length > 0 && (
@@ -305,7 +248,7 @@ export default function HomeScreen({ transactions }) {
             <span className="section-title">
               {viewMode === 'Income' ? 'Income Breakdown' : 'Spending Breakdown'}
             </span>
-            <button className="section-action">See All</button>
+            <button className="section-action" onClick={() => onNavigate && onNavigate('budgets')}>See All</button>
           </div>
           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
             <DonutChart
@@ -322,8 +265,8 @@ export default function HomeScreen({ transactions }) {
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>{c.label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {formatCurrency(c.total, currency)}
+                      <span style={{ fontSize: 12, fontWeight: 700, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)' }}>
+                        {viewMode === 'Income' ? '+' : '−'}{formatCurrency(c.total, currency)}
                       </span>
                     </div>
                     <div className="progress-bar-track" style={{ marginTop: 3, height: 4 }}>
@@ -345,14 +288,14 @@ export default function HomeScreen({ transactions }) {
       <div className="card anim-fadeup" style={{ animationDelay: '0.24s', padding: '18px' }}>
         <div className="section-header">
           <span className="section-title">Recent Transactions</span>
-          <button className="section-action">See All</button>
+          <button className="section-action" onClick={() => onNavigate && onNavigate('transactions')}>See All</button>
         </div>
         {recent.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>
             No transactions for this period
           </div>
         ) : (
-          recent.map(tx => <TransactionItem key={tx.id} tx={tx} />)
+          recent.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} />)
         )}
       </div>
     </div>

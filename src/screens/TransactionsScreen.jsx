@@ -62,20 +62,23 @@ function getDateRange(presetId) {
   }
 }
 
-export default function TransactionsScreen({ transactions }) {
+export default function TransactionsScreen({ transactions, onEdit, datePeriod, onPeriodChange }) {
   const { currency } = useTheme();
   const [typeFilter, setTypeFilter]     = useState('All');
-  const [datePreset, setDatePreset]     = useState('all');
+  const [datePreset, setDatePreset]     = useState(datePeriod || 'all');
   const [search, setSearch]             = useState('');
   const [showCustom, setShowCustom]     = useState(false);
   const [customFrom, setCustomFrom]     = useState('');
   const [customTo, setCustomTo]         = useState('');
+
+  const COMMON_PERIODS = ['today', 'week', 'month', 'all'];
 
   function handlePreset(id) {
     if (id === 'custom') {
       setShowCustom(true);
     } else {
       setDatePreset(id);
+      if (COMMON_PERIODS.includes(id)) onPeriodChange(id);
     }
   }
 
@@ -142,7 +145,7 @@ export default function TransactionsScreen({ transactions }) {
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '0 20px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div style={{ padding: '48px 20px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
             Transactions
@@ -252,12 +255,12 @@ export default function TransactionsScreen({ transactions }) {
             <div style={{ fontSize: 13, marginTop: 6 }}>Try adjusting your filters</div>
           </div>
         ) : (
-          grouped.map(([date, txs]) => {
+          grouped.map(([date, txs], i) => {
             const dayTotal = txs.reduce((s, t) =>
               t.type === 'expense' ? s - t.amount : s + t.amount, 0
             );
             return (
-              <div key={date} style={{ marginTop: 16 }}>
+              <div key={date} className="anim-fadeup" style={{ marginTop: 16, animationDelay: `${i * 0.06}s` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-secondary)' }}>
                     {formatDate(date)}
@@ -267,7 +270,7 @@ export default function TransactionsScreen({ transactions }) {
                   </span>
                 </div>
                 <div className="card" style={{ padding: '0 16px' }}>
-                  {txs.map(tx => <TransactionItem key={tx.id} tx={tx} />)}
+                  {txs.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} />)}
                 </div>
               </div>
             );

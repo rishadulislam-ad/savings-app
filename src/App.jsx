@@ -94,7 +94,7 @@ function AppInner() {
     switch (activeTab) {
       case 'home':         return <HomeScreen transactions={transactions} onEdit={handleEdit} onNavigate={setActiveTab} datePeriod={datePeriod} onPeriodChange={setDatePeriod} currentUser={currentUser} />;
       case 'transactions': return <TransactionsScreen transactions={transactions} onEdit={handleEdit} datePeriod={datePeriod} onPeriodChange={setDatePeriod} />;
-      case 'budgets':      return <BudgetsScreen transactions={transactions} datePeriod={datePeriod} onPeriodChange={setDatePeriod} />;
+      case 'budgets':      return <BudgetsScreen transactions={transactions} datePeriod={datePeriod} onPeriodChange={setDatePeriod} currentUser={currentUser} />;
       case 'profile':      return <ProfileScreen transactions={transactions} currentUser={currentUser} onLogout={handleLogout} />;
       default:             return <HomeScreen transactions={transactions} onEdit={handleEdit} onNavigate={setActiveTab} datePeriod={datePeriod} onPeriodChange={setDatePeriod} currentUser={currentUser} />;
     }

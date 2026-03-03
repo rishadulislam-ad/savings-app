@@ -45,6 +45,7 @@ function groupIncomeByCategory(transactions) {
 export default function HomeScreen({ transactions, onEdit, onNavigate, datePeriod, onPeriodChange, currentUser }) {
   const { currency } = useTheme();
   const [viewMode, setViewMode] = useState('All');
+  const [selectedBar, setSelectedBar] = useState(null);
 
   const filtered = useMemo(() => filterByPeriod(transactions, datePeriod), [transactions, datePeriod]);
 
@@ -90,6 +91,54 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   const { title: summaryTitle, amount: summaryAmount, color: summaryColor } = summaryConfig[viewMode];
 
   const savingsPct = totalIncome > 0 ? Math.round((netBalance / totalIncome) * 100) : 0;
+
+  // Reset selected bar when period or view changes
+  useMemo(() => { setSelectedBar(null); }, [datePeriod, viewMode]);
+
+  // Daily chart: spending (or income) per day over the selected period
+  const dailyChartData = useMemo(() => {
+    // Use local date string to avoid timezone issues
+    const now = new Date();
+    const localStr = d => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    };
+    const todayStr = localStr(now);
+
+    let days = [];
+    if (datePeriod === 'today') {
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        days.push(localStr(d));
+      }
+    } else if (datePeriod === 'week') {
+      const offset = (now.getDay() + 6) % 7;
+      for (let i = 0; i <= offset; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset + i);
+        days.push(localStr(d));
+      }
+    } else if (datePeriod === 'month') {
+      const cur = new Date(now.getFullYear(), now.getMonth(), 1);
+      while (localStr(cur) <= todayStr) {
+        days.push(localStr(cur));
+        cur.setDate(cur.getDate() + 1);
+      }
+    } else {
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        days.push(localStr(d));
+      }
+    }
+
+    const txType = viewMode === 'Income' ? 'income' : 'expense';
+    const relevant = filtered.filter(t => t.type === txType);
+    return days.map(date => ({
+      date,
+      amount: relevant.filter(t => t.date === date).reduce((s, t) => s + t.amount, 0),
+    }));
+  }, [filtered, datePeriod, viewMode]);
 
   return (
     <div className="screen-content" style={{ padding: '48px 20px 20px' }}>
@@ -138,7 +187,15 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
       {/* 3-Segment Toggle + Summary Card */}
       <div
         className="summary-card anim-fadeup"
-        style={{ animationDelay: '0.12s', marginBottom: 20, padding: 0, overflow: 'hidden' }}
+        style={{
+          animationDelay: '0.12s', marginBottom: 20, padding: 0, overflow: 'hidden',
+          background: viewMode === 'Expense'
+            ? 'linear-gradient(145deg, #FF5C5C, #C0152A)'
+            : viewMode === 'Income'
+              ? 'linear-gradient(145deg, #1DB97A, #0A7A4E)'
+              : undefined,
+          transition: 'background 0.3s ease',
+        }}
       >
         {/* Segment Toggle */}
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.18)' }}>
@@ -241,45 +298,148 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
       </div>
 
 
-      {/* Breakdown (donut + categories) */}
-      {donutData.length > 0 && (
-        <div className="card anim-fadeup" style={{ animationDelay: '0.18s', padding: '18px', marginBottom: 16 }}>
-          <div className="section-header" style={{ marginBottom: 16 }}>
+      {/* Breakdown (top total + bar rows) */}
+      {breakdownData.length > 0 && (
+        <div className="card anim-fadeup" style={{ animationDelay: '0.18s', padding: '20px', marginBottom: 16 }}>
+          {/* Header */}
+          <div className="section-header" style={{ marginBottom: 14 }}>
             <span className="section-title">
               {viewMode === 'Income' ? 'Income Breakdown' : 'Spending Breakdown'}
             </span>
             <button className="section-action" onClick={() => onNavigate && onNavigate('budgets')}>See All</button>
           </div>
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <DonutChart
-              data={donutData}
-              size={130}
-              stroke={26}
-              centerLabel={formatCurrency(breakdownTotal, currency)}
-              centerSub={breakdownLabel}
-            />
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {breakdownData.slice(0, 4).map(c => (
-                <div key={c.cat} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)' }}>{c.label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)' }}>
-                        {viewMode === 'Income' ? '+' : '−'}{formatCurrency(c.total, currency)}
+
+          {/* Total pill */}
+          <div style={{
+            display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 18,
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+              Total {viewMode === 'Income' ? 'earned' : 'spent'}
+            </span>
+            <span style={{ fontSize: 22, fontWeight: 800, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)', letterSpacing: '-0.5px' }}>
+              {viewMode === 'Income' ? '+' : '−'}{formatCurrency(breakdownTotal, currency)}
+            </span>
+          </div>
+
+          {/* Daily activity mini chart */}
+          {(() => {
+            const maxAmt = Math.max(...dailyChartData.map(d => d.amount), 1);
+            const now = new Date();
+            const pad = v => String(v).padStart(2, '0');
+            const todayStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+            const isIncome = viewMode === 'Income';
+            const accentColor = isIncome ? 'var(--success)' : 'var(--accent)';
+            const accentRgb   = isIncome ? '16,185,129' : '10,108,255';
+            const n = dailyChartData.length;
+            const labelEvery = n <= 8 ? 1 : n <= 16 ? 2 : n <= 20 ? 3 : 5;
+            const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+            const fmtDate = date => `${MONTHS[parseInt(date.slice(5,7))-1]} ${parseInt(date.slice(8))}`;
+
+            // Info row: show selected bar, fallback to peak
+            const peakEntry = dailyChartData.reduce((a, b) => b.amount > a.amount ? b : a, { amount: 0, date: '' });
+            const infoEntry = selectedBar !== null ? dailyChartData[selectedBar] : peakEntry;
+            const infoLabel = infoEntry?.date ? (selectedBar !== null ? fmtDate(infoEntry.date) : `Peak · ${fmtDate(infoEntry.date)}`) : null;
+
+            return (
+              <div style={{ marginBottom: 20 }}>
+                {/* Header row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Daily Activity
+                  </span>
+                  {infoEntry?.amount > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      {infoLabel}
+                      <span style={{ color: accentColor, marginLeft: 4, fontWeight: 700 }}>
+                        {isIncome ? '+' : '−'}{formatCurrency(infoEntry.amount, currency)}
                       </span>
-                    </div>
-                    <div className="progress-bar-track" style={{ marginTop: 3, height: 4 }}>
-                      <div className="progress-bar-fill" style={{
-                        width: `${breakdownTotal > 0 ? (c.total / breakdownTotal) * 100 : 0}%`,
-                        background: c.color,
-                        height: 4,
-                      }} />
-                    </div>
+                    </span>
+                  )}
+                </div>
+
+                {/* Bars */}
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: n > 20 ? 2 : 3, height: 56 }}>
+                  {dailyChartData.map((d, i) => {
+                    const barH = d.amount > 0 ? Math.max(Math.round((d.amount / maxAmt) * 42), 6) : 4;
+                    const isPeak = d.amount === maxAmt && d.amount > 0;
+                    const isSelected = selectedBar === i;
+                    const isToday = d.date === todayStr;
+                    const showLabel = i === 0 || i === n - 1 || isToday || i % labelEvery === 0;
+
+                    // Bar color: selected/peak = solid accent, has data = medium opacity, empty = very subtle
+                    const barBg = isSelected
+                      ? accentColor
+                      : isPeak && selectedBar === null
+                        ? accentColor
+                        : d.amount > 0
+                          ? `rgba(${accentRgb},0.28)`
+                          : 'var(--border)';
+                    const barShadow = (isSelected || (isPeak && selectedBar === null)) && d.amount > 0
+                      ? `0 2px 8px rgba(${accentRgb},0.45)`
+                      : 'none';
+
+                    return (
+                      <div
+                        key={d.date}
+                        onClick={() => setSelectedBar(isSelected ? null : i)}
+                        style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 4, cursor: d.amount > 0 ? 'pointer' : 'default' }}
+                      >
+                        {/* Selection dot above bar */}
+                        <div style={{ width: 4, height: 4, borderRadius: '50%', background: isSelected ? accentColor : 'transparent', marginBottom: 1, flexShrink: 0 }} />
+                        <div style={{
+                          width: '100%', height: barH, borderRadius: 4,
+                          background: barBg,
+                          boxShadow: barShadow,
+                          transition: 'height 0.4s cubic-bezier(0.25,0.46,0.45,0.94), background 0.2s, box-shadow 0.2s',
+                          transform: isSelected ? 'scaleX(1.15)' : 'scaleX(1)',
+                        }} />
+                        {showLabel ? (
+                          <span style={{ fontSize: 8.5, lineHeight: 1, color: isSelected ? accentColor : isToday ? accentColor : 'var(--text-tertiary)', fontWeight: isSelected || isToday ? 700 : 400, whiteSpace: 'nowrap' }}>
+                            {parseInt(d.date.slice(8))}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 8.5, lineHeight: 1, opacity: 0 }}>·</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Divider */}
+          <div style={{ height: 1, background: 'var(--border)', marginBottom: 16 }} />
+
+          {/* Category rows */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {breakdownData.slice(0, 5).map((c, i) => {
+              const pct = breakdownTotal > 0 ? (c.total / breakdownTotal) * 100 : 0;
+              return (
+                <div key={c.cat}>
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, flexShrink: 0, marginRight: 8 }} />
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)' }}>
+                      {viewMode === 'Income' ? '+' : '−'}{formatCurrency(c.total, currency)}
+                    </span>
+                  </div>
+                  {/* Bar track */}
+                  <div style={{ height: 5, borderRadius: 99, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%',
+                      width: `${pct}%`,
+                      borderRadius: 99,
+                      background: c.color,
+                      transition: 'width 0.6s cubic-bezier(0.25,0.46,0.45,0.94)',
+                    }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-tertiary)' }}>{pct.toFixed(0)}%</span>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         </div>
       )}

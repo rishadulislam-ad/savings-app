@@ -62,8 +62,11 @@ function getDateRange(presetId) {
   }
 }
 
-export default function TransactionsScreen({ transactions, onEdit, datePeriod, onPeriodChange }) {
+export default function TransactionsScreen({ transactions, onEdit, datePeriod, onPeriodChange, customCategories }) {
   const { currency } = useTheme();
+  const allCategories = customCategories?.length
+    ? { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) }
+    : CATEGORIES;
   const [typeFilter, setTypeFilter]     = useState('All');
   const [datePreset, setDatePreset]     = useState(datePeriod || 'all');
   const [search, setSearch]             = useState('');
@@ -111,7 +114,7 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
     }
     if (search) list = list.filter(t =>
       t.title.toLowerCase().includes(search.toLowerCase()) ||
-      CATEGORIES[t.category]?.label.toLowerCase().includes(search.toLowerCase())
+      allCategories[t.category]?.label.toLowerCase().includes(search.toLowerCase())
     );
     return list;
   }, [transactions, typeFilter, activeRange, search]);
@@ -270,7 +273,7 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
                   </span>
                 </div>
                 <div className="card" style={{ padding: '0 16px' }}>
-                  {txs.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} />)}
+                  {txs.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} customCategories={customCategories} />)}
                 </div>
               </div>
             );

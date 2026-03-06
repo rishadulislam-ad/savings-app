@@ -32,20 +32,26 @@ function filterByPeriod(transactions, period) {
   return transactions;
 }
 
-function groupIncomeByCategory(transactions) {
+function groupIncomeByCategory(transactions, allCats = CATEGORIES) {
   const map = {};
   transactions.filter(t => t.type === 'income').forEach(t => {
     map[t.category] = (map[t.category] || 0) + t.amount;
   });
   return Object.entries(map)
-    .map(([cat, total]) => ({ cat, total, ...CATEGORIES[cat] }))
+    .map(([cat, total]) => ({ cat, total, ...(allCats[cat] || CATEGORIES.other) }))
     .sort((a, b) => b.total - a.total);
 }
 
-export default function HomeScreen({ transactions, onEdit, onNavigate, datePeriod, onPeriodChange, currentUser }) {
+export default function HomeScreen({ transactions, onEdit, onNavigate, datePeriod, onPeriodChange, currentUser, customCategories }) {
   const { currency } = useTheme();
   const [viewMode, setViewMode] = useState('All');
   const [selectedBar, setSelectedBar] = useState(null);
+
+  // Merge built-in + custom categories
+  const allCategories = useMemo(() => {
+    if (!customCategories?.length) return CATEGORIES;
+    return { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) };
+  }, [customCategories]);
 
   const filtered = useMemo(() => filterByPeriod(transactions, datePeriod), [transactions, datePeriod]);
 
@@ -60,8 +66,8 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   const netBalance = totalIncome - totalExpense;
 
 
-  const expenseByCategory = useMemo(() => groupByCategory(filtered), [filtered]);
-  const incomeByCategory  = useMemo(() => groupIncomeByCategory(filtered), [filtered]);
+  const expenseByCategory = useMemo(() => groupByCategory(filtered, allCategories), [filtered, allCategories]);
+  const incomeByCategory  = useMemo(() => groupIncomeByCategory(filtered, allCategories), [filtered, allCategories]);
 
   const breakdownData = viewMode === 'Income' ? incomeByCategory : expenseByCategory;
   const breakdownTotal = viewMode === 'Income' ? totalIncome : totalExpense;
@@ -85,8 +91,8 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   // Summary card values per mode
   const summaryConfig = {
     All:     { title: 'Net Balance',  amount: netBalance, color: '#fff' },
-    Expense: { title: 'Total Spent',    amount: totalExpense,               color: '#FFB3B3' },
-    Income:  { title: 'Total Income',   amount: totalIncome,                color: '#B3FFD9' },
+    Expense: { title: 'Total Spent',    amount: totalExpense,               color: '#fff' },
+    Income:  { title: 'Total Income',   amount: totalIncome,                color: '#fff' },
   };
   const { title: summaryTitle, amount: summaryAmount, color: summaryColor } = summaryConfig[viewMode];
 
@@ -151,13 +157,33 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
             {greet}
           </div>
         </div>
-        <div style={{
-          width: 44, height: 44, borderRadius: '50%',
-          background: 'linear-gradient(135deg, #667eea, #764ba2)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18, cursor: 'pointer', boxShadow: '0 2px 8px rgba(102,126,234,0.4)',
-        }}>
-          🧑‍💼
+
+        {/* Right side: Travel Tracker pill + avatar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Travel Tracker button */}
+          <div
+            onClick={() => onNavigate?.('travel')}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '7px 12px 7px 8px', borderRadius: 20,
+              background: 'linear-gradient(135deg, #4facfe, #00f2fe)',
+              cursor: 'pointer', boxShadow: '0 2px 10px rgba(79,172,254,0.4)',
+              WebkitTapHighlightColor: 'transparent',
+            }}
+          >
+            <span style={{ fontSize: 15 }}>✈️</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#fff', letterSpacing: '-0.1px' }}>Trips</span>
+          </div>
+
+          {/* Avatar */}
+          <div style={{
+            width: 44, height: 44, borderRadius: '50%',
+            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 18, cursor: 'pointer', boxShadow: '0 2px 8px rgba(102,126,234,0.4)',
+          }}>
+            🧑‍💼
+          </div>
         </div>
       </div>
 
@@ -227,8 +253,22 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.07em', textTransform: 'uppercase' }}>
             {summaryTitle} · {periodLabel}
           </div>
-          <div style={{ fontSize: 36, fontWeight: 800, color: summaryColor, letterSpacing: '-1.5px', margin: '6px 0 18px', lineHeight: 1 }}>
-            {formatCurrency(Math.abs(summaryAmount), currency)}
+          {/* Main amount + savings badge on same line */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '6px 0 18px' }}>
+            <div style={{ fontSize: 36, fontWeight: 800, color: summaryColor, letterSpacing: '-1.5px', lineHeight: 1 }}>
+              {formatCurrency(Math.abs(summaryAmount), currency)}
+            </div>
+            {viewMode === 'All' && totalIncome > 0 && (
+              <span style={{
+                fontSize: 11, fontWeight: 700, flexShrink: 0,
+                background: savingsPct >= 0 ? 'rgba(179,255,217,0.2)' : 'rgba(255,179,179,0.2)',
+                color: savingsPct >= 0 ? '#B3FFD9' : '#FFB3B3',
+                padding: '4px 10px', borderRadius: 20,
+                border: `1px solid ${savingsPct >= 0 ? 'rgba(179,255,217,0.3)' : 'rgba(255,179,179,0.3)'}`,
+              }}>
+                {savingsPct >= 0 ? '↑' : '↓'} {Math.abs(savingsPct)}% saved
+              </span>
+            )}
           </div>
 
           {viewMode === 'All' && (
@@ -245,16 +285,6 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#FFB3B3', marginTop: 3 }}>
                   −{formatCurrency(totalExpense, currency)}
                 </div>
-              </div>
-              <div style={{ marginLeft: 'auto' }}>
-                <span style={{
-                  fontSize: 11, fontWeight: 700,
-                  background: 'rgba(255,255,255,0.15)',
-                  color: '#fff',
-                  padding: '4px 10px', borderRadius: 20,
-                }}>
-                  {savingsPct >= 0 ? '↑' : '↓'} {Math.abs(savingsPct)}% saved
-                </span>
               </div>
             </div>
           )}
@@ -455,7 +485,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
             No transactions for this period
           </div>
         ) : (
-          recent.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} />)
+          recent.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} customCategories={customCategories} />)
         )}
       </div>
     </div>

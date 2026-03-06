@@ -1,9 +1,16 @@
 import { useState } from 'react';
 import { CATEGORIES, WALLETS } from '../data/transactions';
 
-const TAGS = ['Food', 'Work', 'Family', 'Health', 'Fun', 'Travel', 'Bills', 'Gifts'];
+const DEFAULT_TAGS = ['Food', 'Work', 'Family', 'Health', 'Fun', 'Travel', 'Bills', 'Gifts'];
 
-export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx }) {
+const CAT_COLORS = [
+  '#667eea', '#f97316', '#ec4899', '#10b981',
+  '#f59e0b', '#06b6d4', '#8b5cf6', '#ef4444',
+];
+
+const CAT_EMOJIS = ['🏷️','🎮','🏠','📚','🎵','⚽','🌿','🎁','🐾','🍕','☕','🚀','🌟','💡','🎨','🏋️'];
+
+export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx, customCategories = [], customTags = [], onAddCustomCategory, onAddCustomTag }) {
   const isEditing = !!initialTx;
   const [type, setType] = useState(initialTx?.type || 'expense');
   const [amount, setAmount] = useState(initialTx ? String(initialTx.amount) : '');
@@ -14,9 +21,29 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   const [note, setNote] = useState(initialTx?.note || '');
   const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
 
+  // Custom category sheet state
+  const [showAddCat, setShowAddCat]     = useState(false);
+  const [newCatEmoji, setNewCatEmoji]   = useState('🏷️');
+  const [newCatName, setNewCatName]     = useState('');
+  const [newCatColor, setNewCatColor]   = useState('#667eea');
+
+  // Custom tag input state
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [customTagInput, setCustomTagInput] = useState('');
+
+  // Merged categories: built-in + custom
+  const allCategories = customCategories.length
+    ? { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) }
+    : CATEGORIES;
+
   const expenseCategories = ['eating_out', 'groceries', 'transport', 'entertainment', 'health', 'shopping', 'childcare', 'other'];
   const incomeCategories  = ['salary', 'freelance', 'other'];
-  const cats = type === 'expense' ? expenseCategories : incomeCategories;
+  const builtInCats = type === 'expense' ? expenseCategories : incomeCategories;
+  // Show ALL custom categories regardless of type
+  const cats = [...builtInCats, ...customCategories.map(c => c.id)];
+
+  // Merged tags: default + custom
+  const allTags = [...DEFAULT_TAGS, ...customTags];
 
   function toggleTag(t) {
     setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
@@ -35,7 +62,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
     onSave({
       type,
       amount: parseFloat(amount),
-      title: title || CATEGORIES[category]?.label || 'Transaction',
+      title: title || allCategories[category]?.label || 'Transaction',
       category,
       wallet,
       tags,
@@ -45,12 +72,34 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
     onClose();
   }
 
-  const displayAmount = amount
-    ? `$${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : '$0.00';
+  function handleAddCategory() {
+    if (!newCatName.trim()) return;
+    const newCat = {
+      id: `custom_${Date.now()}`,
+      label: newCatName.trim(),
+      icon: newCatEmoji,
+      color: newCatColor,
+      bg: `${newCatColor}22`,
+    };
+    onAddCustomCategory?.(newCat);
+    setCategory(newCat.id);
+    setNewCatName('');
+    setNewCatEmoji('🏷️');
+    setNewCatColor('#667eea');
+    setShowAddCat(false);
+  }
+
+  function handleAddCustomTag() {
+    const tag = customTagInput.trim();
+    if (!tag) return;
+    setTags(prev => prev.includes(tag) ? prev : [...prev, tag]);
+    onAddCustomTag?.(tag);
+    setCustomTagInput('');
+    setShowTagInput(false);
+  }
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
       {/* Header */}
       <div style={{
         padding: '48px 20px 0', background: 'var(--surface)',
@@ -148,7 +197,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           <input
             className="form-input"
             type="text"
-            placeholder={`e.g. ${CATEGORIES[category]?.label}`}
+            placeholder={`e.g. ${allCategories[category]?.label}`}
             value={title}
             onChange={e => setTitle(e.target.value)}
           />
@@ -156,11 +205,15 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
 
         {/* Category */}
         <div className="form-group">
-          <label className="form-label">Category</label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <label className="form-label" style={{ margin: 0 }}>Category</label>
+          </div>
           <div className="category-grid">
             {cats.map(catKey => {
-              const c = CATEGORIES[catKey];
+              const c = allCategories[catKey];
+              if (!c) return null;
               const isActive = category === catKey;
+              const isCustom = !!customCategories.find(cc => cc.id === catKey);
               return (
                 <button
                   key={catKey}
@@ -168,14 +221,35 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
                   onClick={() => setCategory(catKey)}
                 >
                   <div className="category-icon-wrap" style={{
-                    background: isActive ? c.bg : 'var(--surface2)',
+                    background: isActive ? (c.bg || `${c.color}22`) : 'var(--surface2)',
+                    position: 'relative',
                   }}>
                     <span>{c.icon}</span>
+                    {isCustom && (
+                      <div style={{
+                        position: 'absolute', top: -3, right: -3,
+                        width: 10, height: 10, borderRadius: '50%',
+                        background: c.color, border: '1.5px solid var(--surface)',
+                      }} />
+                    )}
                   </div>
                   <span className="category-name">{c.label}</span>
                 </button>
               );
             })}
+            {/* + New Category button */}
+            <button
+              className="category-btn"
+              onClick={() => setShowAddCat(true)}
+            >
+              <div className="category-icon-wrap" style={{
+                background: 'var(--surface2)',
+                border: '1.5px dashed var(--border)',
+              }}>
+                <span style={{ fontSize: 18, color: 'var(--text-tertiary)' }}>+</span>
+              </div>
+              <span className="category-name" style={{ color: 'var(--text-tertiary)' }}>New</span>
+            </button>
           </div>
         </div>
 
@@ -209,7 +283,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
               >
                 <span style={{ fontSize: 20 }}>{w.icon}</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color: wallet === w.id ? 'var(--accent)' : 'var(--text-secondary)' }}>
-                  {w.label.split(' ')[0]}
+                  {w.label}
                 </span>
               </button>
             ))}
@@ -220,16 +294,63 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
         <div className="form-group">
           <label className="form-label">Tags</label>
           <div className="tag-scroll">
-            {TAGS.map(t => (
+            {allTags.map(t => (
               <button
                 key={t}
                 className={`chip ${tags.includes(t) ? 'chip-solid' : 'chip-outline'}`}
                 onClick={() => toggleTag(t)}
               >
-                {tags.includes(t) && <span>✓</span>}
+                {tags.includes(t) && <span>✓ </span>}
                 {t}
               </button>
             ))}
+            {/* Custom tag input / button */}
+            {showTagInput ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <input
+                  autoFocus
+                  type="text"
+                  value={customTagInput}
+                  onChange={e => setCustomTagInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleAddCustomTag();
+                    if (e.key === 'Escape') { setCustomTagInput(''); setShowTagInput(false); }
+                  }}
+                  placeholder="Tag name…"
+                  style={{
+                    padding: '5px 12px', borderRadius: 20,
+                    border: '1.5px solid var(--accent)',
+                    background: 'var(--surface2)', color: 'var(--text-primary)',
+                    fontSize: 13, outline: 'none', width: 110, fontFamily: 'inherit',
+                  }}
+                />
+                <button
+                  onClick={handleAddCustomTag}
+                  style={{
+                    padding: '5px 10px', borderRadius: 20, border: 'none',
+                    background: 'var(--accent)', color: '#fff',
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+                  }}
+                >Add</button>
+                <button
+                  onClick={() => { setCustomTagInput(''); setShowTagInput(false); }}
+                  style={{
+                    width: 26, height: 26, borderRadius: '50%', border: 'none',
+                    background: 'var(--surface2)', color: 'var(--text-tertiary)',
+                    fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >✕</button>
+              </div>
+            ) : (
+              <button
+                className="chip chip-outline"
+                onClick={() => setShowTagInput(true)}
+                style={{ borderStyle: 'dashed', color: 'var(--text-tertiary)', flexShrink: 0 }}
+              >
+                + Tag
+              </button>
+            )}
           </div>
         </div>
 
@@ -251,6 +372,108 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           {isEditing ? 'Save Changes' : (type === 'expense' ? '− Add Expense' : '+ Add Income')}
         </button>
       </div>
+
+      {/* ── Add Custom Category Sheet ── */}
+      {showAddCat && (
+        <div
+          onClick={() => setShowAddCat(false)}
+          style={{
+            position: 'absolute', inset: 0,
+            background: 'rgba(0,0,0,0.45)', zIndex: 100,
+            display: 'flex', alignItems: 'flex-end',
+            animation: 'fadeIn 0.2s ease both',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '100%', background: 'var(--surface)',
+              borderRadius: '22px 22px 0 0', padding: '0 20px 44px',
+              animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
+              boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
+            }}
+          >
+            {/* Handle */}
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 20px' }} />
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>New Category</div>
+              <button
+                onClick={() => setShowAddCat(false)}
+                style={{ width: 30, height: 30, borderRadius: 10, background: 'var(--surface2)', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              >✕</button>
+            </div>
+
+            {/* Emoji + Name row */}
+            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  width: 52, height: 52, borderRadius: 14, border: '1.5px solid var(--border)',
+                  background: newCatColor + '22', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 26, cursor: 'pointer',
+                }}>{newCatEmoji}</div>
+              </div>
+              <input
+                type="text"
+                value={newCatName}
+                onChange={e => setNewCatName(e.target.value)}
+                placeholder="Category name…"
+                className="form-input"
+                style={{ flex: 1, margin: 0 }}
+                autoFocus
+              />
+            </div>
+
+            {/* Emoji picker row */}
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
+              Icon
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
+              {CAT_EMOJIS.map(em => (
+                <button
+                  key={em}
+                  onClick={() => setNewCatEmoji(em)}
+                  style={{
+                    width: 38, height: 38, borderRadius: 10, border: `2px solid ${newCatEmoji === em ? newCatColor : 'var(--border)'}`,
+                    background: newCatEmoji === em ? newCatColor + '22' : 'var(--surface2)',
+                    fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'all 0.15s',
+                  }}
+                >{em}</button>
+              ))}
+            </div>
+
+            {/* Color picker */}
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>
+              Color
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 22 }}>
+              {CAT_COLORS.map(col => (
+                <div
+                  key={col}
+                  onClick={() => setNewCatColor(col)}
+                  style={{
+                    width: 32, height: 32, borderRadius: '50%', background: col,
+                    cursor: 'pointer', flexShrink: 0,
+                    boxShadow: newCatColor === col ? `0 0 0 2px var(--surface), 0 0 0 4px ${col}` : 'none',
+                    transition: 'box-shadow 0.15s',
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Save button */}
+            <button
+              onClick={handleAddCategory}
+              className="btn-primary"
+              style={{ opacity: !newCatName.trim() ? 0.45 : 1 }}
+            >
+              ✓ Add Category
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

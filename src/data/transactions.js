@@ -12,9 +12,9 @@ export const CATEGORIES = {
 };
 
 export const WALLETS = [
-  { id: 'main',    label: 'Main Account',  icon: '🏦', balance: 4280.50 },
-  { id: 'savings', label: 'Savings',       icon: '🐷', balance: 12400.00 },
-  { id: 'cash',    label: 'Cash',          icon: '💵', balance: 340.00 },
+  { id: 'main',    label: 'Bank',     icon: '🏦', balance: 4280.50 },
+  { id: 'savings', label: 'Savings',  icon: '💰', balance: 12400.00 },
+  { id: 'cash',    label: 'Cash',     icon: '💵', balance: 340.00 },
 ];
 
 export const CURRENCIES = [
@@ -85,28 +85,35 @@ export const INITIAL_TRANSACTIONS = [
 
 export function formatCurrency(amount, currencyCode = 'USD', withSign = false) {
   const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
-  // Use Intl for currencies it supports, fallback to manual symbol for others
+  const noDecimals = ['JPY', 'KRW', 'VND', 'IDR'].includes(currencyCode);
   let formatted;
   try {
     formatted = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currencyCode,
-      minimumFractionDigits: currencyCode === 'JPY' || currencyCode === 'KRW' || currencyCode === 'VND' || currencyCode === 'IDR' ? 0 : 2,
+      minimumFractionDigits: noDecimals ? 0 : 2,
     }).format(Math.abs(amount));
+    // If Intl outputs the ISO code instead of a symbol, replace with our custom symbol
+    if (formatted.includes(currencyCode)) {
+      formatted = formatted.replace(new RegExp(currencyCode + '\\s*'), cur.symbol);
+    }
   } catch {
-    const num = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const num = Math.abs(amount).toLocaleString('en-US', {
+      minimumFractionDigits: noDecimals ? 0 : 2,
+      maximumFractionDigits: noDecimals ? 0 : 2,
+    });
     formatted = `${cur.symbol}${num}`;
   }
   if (!withSign) return formatted;
   return amount < 0 ? `- ${formatted}` : `+ ${formatted}`;
 }
 
-export function groupByCategory(transactions) {
+export function groupByCategory(transactions, allCats = CATEGORIES) {
   const map = {};
   transactions.filter(t => t.type === 'expense').forEach(t => {
     map[t.category] = (map[t.category] || 0) + t.amount;
   });
   return Object.entries(map)
-    .map(([cat, total]) => ({ cat, total, ...CATEGORIES[cat] }))
+    .map(([cat, total]) => ({ cat, total, ...(allCats[cat] || CATEGORIES.other) }))
     .sort((a, b) => b.total - a.total);
 }

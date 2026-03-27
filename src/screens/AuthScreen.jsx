@@ -1,6 +1,17 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 
+async function hashPassword(password, email) {
+  const encoder = new TextEncoder();
+  const salt = email.toLowerCase().trim();
+  const data = encoder.encode(password + ':' + salt + ':findo_v2');
+  const hash1 = await crypto.subtle.digest('SHA-256', data);
+  // Double hash for extra security
+  const hash2 = await crypto.subtle.digest('SHA-256', hash1);
+  const hashArray = Array.from(new Uint8Array(hash2));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default function AuthScreen({ onAuth }) {
   const { isDark } = useTheme();
   const [mode, setMode] = useState('signin');
@@ -9,24 +20,27 @@ export default function AuthScreen({ onAuth }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  function handleSubmit() {
+  async function handleSubmit() {
     setError('');
     if (!email.trim() || !password.trim()) { setError('Please fill in all fields.'); return; }
     if (mode === 'signup' && !name.trim()) { setError('Please enter your name.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
 
+    const hashedPw = await hashPassword(password, email);
+
     if (mode === 'signup') {
       const existing = localStorage.getItem(`findo_user_${email.toLowerCase()}`);
       if (existing) { setError('An account with this email already exists.'); return; }
       const user = { name: name.trim(), email: email.toLowerCase() };
-      localStorage.setItem(`findo_user_${email.toLowerCase()}`, JSON.stringify({ ...user, password }));
+      localStorage.setItem(`findo_user_${email.toLowerCase()}`, JSON.stringify({ ...user, password: hashedPw }));
       localStorage.setItem('findo_session', JSON.stringify(user));
       onAuth(user, []);
     } else {
       const stored = localStorage.getItem(`findo_user_${email.toLowerCase()}`);
       if (!stored) { setError('No account found with this email.'); return; }
       const userData = JSON.parse(stored);
-      if (userData.password !== password) { setError('Incorrect password.'); return; }
+      const isValid = userData.password === hashedPw;
+      if (!isValid) { setError('Incorrect password.'); return; }
       const user = { name: userData.name, email: email.toLowerCase() };
       localStorage.setItem('findo_session', JSON.stringify(user));
       const savedTx = localStorage.getItem(`findo_transactions_${email.toLowerCase()}`);

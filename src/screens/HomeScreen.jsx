@@ -147,7 +147,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   }, [filtered, datePeriod, viewMode]);
 
   return (
-    <div className="screen-content" style={{ padding: '48px 20px 20px' }}>
+    <div className="screen-content" role="main" style={{ padding: '48px 20px 20px' }}>
 
       {/* Header */}
       <div className="anim-fadeup" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -176,7 +176,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
 
           {/* Avatar */}
-          <div onClick={() => onNavigate?.('profile')} style={{
+          <div onClick={() => onNavigate?.('profile')} role="button" aria-label="Profile" style={{
             width: 44, height: 44, borderRadius: '50%',
             background: 'var(--surface2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -194,6 +194,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           <button
             key={p.id}
             onClick={() => onPeriodChange(p.id)}
+            aria-label={`Filter by ${p.label}`}
             style={{
               padding: '6px 14px',
               borderRadius: 20,
@@ -256,8 +257,8 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
           {/* Main amount + savings badge on same line */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '6px 0 18px' }}>
-            <div style={{ fontSize: 36, fontWeight: 800, color: summaryColor, letterSpacing: '-1.5px', lineHeight: 1 }}>
-              {formatCurrency(Math.abs(summaryAmount), currency)}
+            <div style={{ fontSize: 36, fontWeight: 800, color: viewMode === 'All' && summaryAmount < 0 ? '#FF6B6B' : summaryColor, letterSpacing: '-1.5px', lineHeight: 1 }}>
+              {viewMode === 'All' && summaryAmount < 0 ? '−' : ''}{formatCurrency(Math.abs(summaryAmount), currency)}
             </div>
             {viewMode === 'All' && totalIncome > 0 && (
               <span style={{
@@ -474,6 +475,286 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
         </div>
       )}
+
+      {/* Upcoming Bills (from recurring transactions) */}
+      {(() => {
+        const recurring = transactions.filter(t => t.recurring);
+        if (recurring.length === 0) return null;
+        const today = new Date();
+        const todayStr = today.toISOString().slice(0, 10);
+        const upcoming = recurring.map(t => {
+          const lastDate = new Date(t.date);
+          let next = new Date(lastDate);
+          // Find the next occurrence after today
+          while (next.toISOString().slice(0, 10) <= todayStr) {
+            if (t.recurFreq === 'weekly') next.setDate(next.getDate() + 7);
+            else if (t.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
+            else next.setMonth(next.getMonth() + 1);
+          }
+          const nextStr = next.toISOString().slice(0, 10);
+          const daysUntil = Math.ceil((next - today) / (1000 * 60 * 60 * 24));
+          const cat = allCategories[t.category] || { label: t.category, icon: '📦', color: '#6B7280' };
+          return { ...t, nextDate: nextStr, daysUntil, cat };
+        }).sort((a, b) => a.daysUntil - b.daysUntil).slice(0, 5);
+
+        return (
+          <div className="card anim-fadeup" style={{ animationDelay: '0.18s', padding: '18px', marginBottom: 16 }}>
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <span className="section-title">Upcoming Bills</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{recurring.length} recurring</span>
+            </div>
+            {upcoming.map((bill, i) => (
+              <div key={bill.id + '_' + i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < upcoming.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: bill.cat.color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                  {bill.cat.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bill.title}</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    {bill.recurFreq} · {new Date(bill.nextDate).toLocaleDateString('en', { month: 'short', day: 'numeric' })}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: bill.type === 'income' ? 'var(--success)' : 'var(--danger)' }}>
+                    {bill.type === 'income' ? '+' : '−'}{formatCurrency(bill.amount, currency)}
+                  </div>
+                  <div style={{
+                    fontSize: 9, fontWeight: 700, marginTop: 2, padding: '1px 6px', borderRadius: 4,
+                    background: bill.daysUntil <= 3 ? 'rgba(239,68,68,0.1)' : bill.daysUntil <= 7 ? 'rgba(245,158,11,0.1)' : 'var(--surface2)',
+                    color: bill.daysUntil <= 3 ? 'var(--danger)' : bill.daysUntil <= 7 ? '#F59E0B' : 'var(--text-tertiary)',
+                  }}>
+                    {bill.daysUntil === 0 ? 'Today' : bill.daysUntil === 1 ? 'Tomorrow' : `In ${bill.daysUntil} days`}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Income vs Expense Trend */}
+      {(() => {
+        // Build 6-month trend data
+        const monthlyTrend = {};
+        transactions.forEach(t => {
+          const m = (t.date || '').slice(0, 7);
+          if (!m) return;
+          if (!monthlyTrend[m]) monthlyTrend[m] = { income: 0, expense: 0 };
+          if (t.type === 'income') monthlyTrend[m].income += t.amount;
+          else monthlyTrend[m].expense += t.amount;
+        });
+        const mKeys = Object.keys(monthlyTrend).sort().slice(-6);
+        if (mKeys.length < 2) return null;
+        const maxVal = Math.max(...mKeys.map(k => Math.max(monthlyTrend[k].income, monthlyTrend[k].expense)), 1);
+        const chartH = 100;
+        return (
+          <div className="card anim-fadeup" style={{ animationDelay: '0.2s', padding: '18px', marginBottom: 16 }}>
+            <div className="section-header" style={{ marginBottom: 14 }}>
+              <span className="section-title">Income vs Expense</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>Last {mKeys.length} months</span>
+            </div>
+            {/* Line chart */}
+            <svg viewBox={`0 0 ${(mKeys.length - 1) * 60 + 20} ${chartH + 20}`} style={{ width: '100%', height: chartH + 20, overflow: 'visible' }}>
+              {/* Grid lines */}
+              {[0, 0.25, 0.5, 0.75, 1].map(p => (
+                <line key={p} x1="10" y1={10 + (1 - p) * chartH} x2={(mKeys.length - 1) * 60 + 10} y2={10 + (1 - p) * chartH} stroke="var(--border)" strokeWidth="0.5" strokeDasharray="3,3" />
+              ))}
+              {/* Income line */}
+              <polyline
+                fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                points={mKeys.map((k, i) => `${10 + i * 60},${10 + (1 - monthlyTrend[k].income / maxVal) * chartH}`).join(' ')}
+              />
+              {/* Expense line */}
+              <polyline
+                fill="none" stroke="var(--danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                points={mKeys.map((k, i) => `${10 + i * 60},${10 + (1 - monthlyTrend[k].expense / maxVal) * chartH}`).join(' ')}
+              />
+              {/* Income dots */}
+              {mKeys.map((k, i) => (
+                <circle key={'i' + k} cx={10 + i * 60} cy={10 + (1 - monthlyTrend[k].income / maxVal) * chartH} r="3.5" fill="var(--success)" />
+              ))}
+              {/* Expense dots */}
+              {mKeys.map((k, i) => (
+                <circle key={'e' + k} cx={10 + i * 60} cy={10 + (1 - monthlyTrend[k].expense / maxVal) * chartH} r="3.5" fill="var(--danger)" />
+              ))}
+              {/* Month labels */}
+              {mKeys.map((k, i) => (
+                <text key={'l' + k} x={10 + i * 60} y={chartH + 20} textAnchor="middle" fill="var(--text-tertiary)" fontSize="9" fontWeight="600">
+                  {new Date(k + '-15').toLocaleString('en', { month: 'short' })}
+                </text>
+              ))}
+            </svg>
+            {/* Legend */}
+            <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--success)' }} />
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Income</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--danger)' }} />
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Expense</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Calendar Heatmap */}
+      {(() => {
+        const now = new Date();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
+        const monthLabel = now.toLocaleString('en', { month: 'long', year: 'numeric' });
+        const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        // Spending per day this month
+        const daySpend = {};
+        let maxDaySpend = 0;
+        transactions.forEach(t => {
+          if (t.type === 'expense' && (t.date || '').startsWith(currentMonthStr)) {
+            const day = parseInt(t.date.slice(8, 10));
+            daySpend[day] = (daySpend[day] || 0) + t.amount;
+            if (daySpend[day] > maxDaySpend) maxDaySpend = daySpend[day];
+          }
+        });
+
+        if (Object.keys(daySpend).length === 0) return null;
+
+        const cells = [];
+        // Empty cells for offset
+        for (let i = 0; i < firstDay; i++) cells.push({ day: 0, amount: 0 });
+        for (let d = 1; d <= daysInMonth; d++) cells.push({ day: d, amount: daySpend[d] || 0 });
+
+        function getColor(amount) {
+          if (amount === 0) return 'var(--surface2)';
+          const intensity = maxDaySpend > 0 ? amount / maxDaySpend : 0;
+          if (intensity < 0.25) return 'rgba(239,68,68,0.15)';
+          if (intensity < 0.5) return 'rgba(239,68,68,0.3)';
+          if (intensity < 0.75) return 'rgba(239,68,68,0.5)';
+          return 'rgba(239,68,68,0.75)';
+        }
+
+        return (
+          <div className="card anim-fadeup" style={{ animationDelay: '0.22s', padding: '18px', marginBottom: 16 }}>
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <span className="section-title">Spending Heatmap</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{monthLabel}</span>
+            </div>
+            {/* Day labels */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 4 }}>
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <div key={i} style={{ textAlign: 'center', fontSize: 9, fontWeight: 600, color: 'var(--text-tertiary)' }}>{d}</div>
+              ))}
+            </div>
+            {/* Calendar grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+              {cells.map((cell, i) => (
+                <div key={i} style={{
+                  aspectRatio: '1', borderRadius: 6,
+                  background: cell.day === 0 ? 'transparent' : getColor(cell.amount),
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 9, fontWeight: 600,
+                  color: cell.day === 0 ? 'transparent' : cell.amount > 0 ? '#fff' : 'var(--text-tertiary)',
+                  position: 'relative',
+                  border: cell.day === now.getDate() ? '1.5px solid var(--accent)' : '1.5px solid transparent',
+                }}>
+                  {cell.day > 0 && cell.day}
+                </div>
+              ))}
+            </div>
+            {/* Legend */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10 }}>
+              <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>Less</span>
+              {['var(--surface2)', 'rgba(239,68,68,0.15)', 'rgba(239,68,68,0.3)', 'rgba(239,68,68,0.5)', 'rgba(239,68,68,0.75)'].map((c, i) => (
+                <div key={i} style={{ width: 12, height: 12, borderRadius: 3, background: c }} />
+              ))}
+              <span style={{ fontSize: 9, color: 'var(--text-tertiary)' }}>More</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Spending Insights */}
+      {(() => {
+        const now = new Date();
+        const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+        // Current month and previous month expenses by category
+        const curCats = {};
+        const prevCats = {};
+        let curIncome = 0, curExpense = 0, prevExpense = 0;
+
+        transactions.forEach(t => {
+          const m = (t.date || '').slice(0, 7);
+          if (m === curMonth) {
+            if (t.type === 'income') curIncome += t.amount;
+            else {
+              curExpense += t.amount;
+              curCats[t.category] = (curCats[t.category] || 0) + t.amount;
+            }
+          } else if (m === prevMonth && t.type === 'expense') {
+            prevExpense += t.amount;
+            prevCats[t.category] = (prevCats[t.category] || 0) + t.amount;
+          }
+        });
+
+        const insights = [];
+
+        // Savings rate
+        if (curIncome > 0) {
+          const rate = Math.round(((curIncome - curExpense) / curIncome) * 100);
+          if (rate > 30) insights.push({ icon: '\uD83C\uDFAF', text: `You've saved ${rate}% of your income this month — great discipline!`, color: 'var(--success)' });
+          else if (rate > 0) insights.push({ icon: '\uD83D\uDCA1', text: `Savings rate is ${rate}% this month. Aim for 20%+ for a healthy buffer.`, color: '#F59E0B' });
+          else insights.push({ icon: '\u26A0\uFE0F', text: `You're spending more than you earn this month. Review your expenses.`, color: 'var(--danger)' });
+        }
+
+        // Compare categories - find biggest increase
+        Object.keys(curCats).forEach(cat => {
+          const cur = curCats[cat];
+          const prev = prevCats[cat] || 0;
+          if (prev > 0) {
+            const change = Math.round(((cur - prev) / prev) * 100);
+            const catInfo = allCategories[cat] || { label: cat };
+            if (change > 25) insights.push({ icon: '\uD83D\uDCC8', text: `${catInfo.label} spending is up ${change}% vs last month`, color: 'var(--danger)' });
+            else if (change < -15) insights.push({ icon: '\uD83D\uDCC9', text: `${catInfo.label} spending is down ${Math.abs(change)}% — nice!`, color: 'var(--success)' });
+          }
+        });
+
+        // Biggest expense category
+        const topCat = Object.entries(curCats).sort((a, b) => b[1] - a[1])[0];
+        if (topCat) {
+          const catInfo = allCategories[topCat[0]] || { label: topCat[0] };
+          insights.push({ icon: '\uD83C\uDFF7\uFE0F', text: `Biggest expense: ${catInfo.label} at ${formatCurrency(topCat[1], currency)}`, color: 'var(--text-secondary)' });
+        }
+
+        // Overall spending change
+        if (prevExpense > 0) {
+          const totalChange = Math.round(((curExpense - prevExpense) / prevExpense) * 100);
+          if (totalChange > 10) insights.push({ icon: '\uD83D\uDD14', text: `Overall spending is ${totalChange}% higher than last month`, color: '#F59E0B' });
+          else if (totalChange < -10) insights.push({ icon: '\u2728', text: `Overall spending is ${Math.abs(totalChange)}% lower than last month!`, color: 'var(--success)' });
+        }
+
+        if (insights.length === 0) return null;
+
+        return (
+          <div className="card anim-fadeup" style={{ animationDelay: '0.26s', padding: '18px', marginBottom: 16 }}>
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <span className="section-title">Insights</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>This month</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {insights.slice(0, 4).map((insight, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'var(--surface2)' }}>
+                  <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{insight.icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: insight.color, lineHeight: 1.5 }}>{insight.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Recent Transactions */}
       <div className="card anim-fadeup" style={{ animationDelay: '0.24s', padding: '18px' }}>

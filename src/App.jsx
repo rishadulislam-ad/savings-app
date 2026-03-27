@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import BottomNav from './components/BottomNav';
 import HomeScreen from './screens/HomeScreen';
 import AddTransactionScreen from './screens/AddTransactionScreen';
@@ -103,7 +104,7 @@ function AppInner() {
       if (!alreadyExists && nextStr <= today) {
         newTxs.push({
           ...t,
-          id: Date.now() + Math.random(),
+          id: crypto.randomUUID(),
           date: nextStr,
           recurring: true,
         });
@@ -120,7 +121,7 @@ function AppInner() {
       setTransactions(prev => prev.map(t => t.id === editingTx.id ? { ...tx, id: editingTx.id } : t));
       setEditingTx(null);
     } else {
-      setTransactions(prev => [{ ...tx, id: Date.now() }, ...prev]);
+      setTransactions(prev => [{ ...tx, id: crypto.randomUUID() }, ...prev]);
     }
   }
 
@@ -164,6 +165,36 @@ function AppInner() {
   function handleEdit(tx) {
     setEditingTx(tx);
     setShowAdd(true);
+  }
+
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAmount, setQuickAmount] = useState('');
+  const [quickCat, setQuickCat] = useState('eating_out');
+  const QUICK_CATS = [
+    { id: 'eating_out', icon: '🍔', label: 'Food' },
+    { id: 'groceries', icon: '🛒', label: 'Groceries' },
+    { id: 'transport', icon: '🚌', label: 'Transport' },
+    { id: 'shopping', icon: '👜', label: 'Shopping' },
+    { id: 'entertainment', icon: '🎬', label: 'Fun' },
+    { id: 'health', icon: '💊', label: 'Health' },
+  ];
+
+  function handleQuickSave() {
+    const amt = parseFloat(quickAmount);
+    if (!amt || amt <= 0) return;
+    handleSave({
+      type: 'expense',
+      amount: amt,
+      title: QUICK_CATS.find(c => c.id === quickCat)?.label || 'Expense',
+      category: quickCat,
+      wallet: 'main',
+      tags: [],
+      note: '',
+      date: new Date().toISOString().slice(0, 10),
+    });
+    setQuickAmount('');
+    setQuickCat('eating_out');
+    setShowQuickAdd(false);
   }
 
   const [deletedTx, setDeletedTx] = useState(null);
@@ -233,7 +264,7 @@ function AppInner() {
       case 'home':
         return <HomeScreen transactions={transactions} onEdit={handleEdit} onNavigate={setActiveTab} datePeriod={datePeriod} onPeriodChange={setDatePeriod} currentUser={currentUser} customCategories={customCategories} />;
       case 'transactions':
-        return <TransactionsScreen transactions={transactions} onEdit={handleEdit} datePeriod={datePeriod} onPeriodChange={setDatePeriod} customCategories={customCategories} />;
+        return <TransactionsScreen transactions={transactions} onEdit={handleEdit} onDelete={handleDelete} datePeriod={datePeriod} onPeriodChange={setDatePeriod} customCategories={customCategories} />;
       case 'budgets':
         return <BudgetsScreen transactions={transactions} datePeriod={datePeriod} onPeriodChange={setDatePeriod} currentUser={currentUser} />;
       case 'profile':
@@ -261,7 +292,7 @@ function AppInner() {
   }
 
   return (
-    <div className={`phone-shell ${isDark ? 'dark' : ''}`}>
+    <div className={`phone-shell ${isDark ? 'dark' : ''}`} onKeyDown={(e) => { if (e.key === 'Escape') { if (showQuickAdd) setShowQuickAdd(false); else if (showAdd) handleCloseAdd(); } }}>
       <div className="screen">
 <div key={showAdd ? 'add' : activeTab} className={showAdd ? 'screen-enter-up' : 'screen-enter'} style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           {renderScreen()}
@@ -271,9 +302,69 @@ function AppInner() {
             activeTab={activeTab}
             onTabChange={setActiveTab}
             onAdd={() => setShowAdd(true)}
+            onQuickAdd={() => setShowQuickAdd(true)}
           />
         )}
       </div>
+
+      {/* Quick Add Modal */}
+      {showQuickAdd && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9998, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={() => setShowQuickAdd(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+          <div style={{
+            position: 'relative', width: '100%', maxWidth: 420, padding: '24px 20px 32px', borderRadius: '24px 24px 0 0',
+            background: 'var(--surface)', animation: 'slideUp 0.3s ease both',
+          }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 16 }}>Quick Add Expense</div>
+
+            {/* Amount */}
+            <input
+              type="number"
+              value={quickAmount}
+              onChange={e => setQuickAmount(e.target.value)}
+              placeholder="0.00"
+              autoFocus
+              style={{
+                width: '100%', padding: '14px 16px', borderRadius: 14, fontSize: 28, fontWeight: 800,
+                background: 'var(--surface2)', border: '1.5px solid var(--border)', color: 'var(--text-primary)',
+                textAlign: 'center', outline: 'none', boxSizing: 'border-box', marginBottom: 16,
+              }}
+            />
+
+            {/* Quick categories */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 20 }}>
+              {QUICK_CATS.map(c => (
+                <div key={c.id} onClick={() => setQuickCat(c.id)} style={{
+                  padding: '10px 8px', borderRadius: 12, textAlign: 'center', cursor: 'pointer',
+                  background: quickCat === c.id ? 'var(--accent-light)' : 'var(--surface2)',
+                  border: quickCat === c.id ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+                  transition: 'all 0.15s ease',
+                }}>
+                  <div style={{ fontSize: 20, marginBottom: 2 }}>{c.icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: quickCat === c.id ? 'var(--accent)' : 'var(--text-secondary)' }}>{c.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowQuickAdd(false)} style={{
+                flex: 1, padding: 14, borderRadius: 14, background: 'var(--surface2)', border: '1px solid var(--border)',
+                color: 'var(--text-secondary)', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>Cancel</button>
+              <button onClick={handleQuickSave} style={{
+                flex: 2, padding: 14, borderRadius: 14, background: 'var(--accent)', border: 'none',
+                color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}>Add Expense</button>
+            </div>
+
+            <div style={{ textAlign: 'center', marginTop: 10, fontSize: 11, color: 'var(--text-tertiary)' }}>
+              Swipe up on + button for full form
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Undo Delete Toast */}
       {deletedTx && (
@@ -308,8 +399,10 @@ function AppInner() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppInner />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppInner />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

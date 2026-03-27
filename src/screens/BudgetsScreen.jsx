@@ -440,7 +440,7 @@ export default function BudgetsScreen({ transactions, datePeriod, onPeriodChange
           <div style={{ height: 8, background: 'rgba(255,255,255,0.2)', borderRadius: 4, overflow: 'hidden' }}>
             <div style={{
               height: '100%', width: `${overallPct}%`,
-              background: overallPct > 85 ? '#EF4444' : '#fff',
+              background: overallPct > 85 ? 'var(--danger)' : '#fff',
               borderRadius: 4, transition: 'width 0.6s ease',
             }}/>
           </div>

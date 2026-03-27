@@ -85,6 +85,10 @@ export const INITIAL_TRANSACTIONS = [
 ];
 
 export function formatCurrency(amount, currencyCode = 'USD', withSign = false) {
+  if (amount === null || amount === undefined || !isFinite(amount) || isNaN(amount)) {
+    const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
+    return `${cur.symbol}0.00`;
+  }
   const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
   const noDecimals = ['JPY', 'KRW', 'VND', 'IDR'].includes(currencyCode);
   let formatted;

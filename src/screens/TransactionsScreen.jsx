@@ -62,7 +62,7 @@ function getDateRange(presetId) {
   }
 }
 
-export default function TransactionsScreen({ transactions, onEdit, datePeriod, onPeriodChange, customCategories }) {
+export default function TransactionsScreen({ transactions, onEdit, onDelete, datePeriod, onPeriodChange, customCategories }) {
   const { currency } = useTheme();
   const allCategories = customCategories?.length
     ? { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) }
@@ -73,6 +73,29 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
   const [showCustom, setShowCustom]     = useState(false);
   const [customFrom, setCustomFrom]     = useState('');
   const [customTo, setCustomTo]         = useState('');
+  const [selectMode, setSelectMode]     = useState(false);
+  const [selected, setSelected]         = useState(new Set());
+
+  function toggleSelect(id) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
+  function handleBulkDelete() {
+    if (!onDelete || selected.size === 0) return;
+    const ids = [...selected];
+    ids.forEach(id => onDelete(id));
+    exitSelectMode();
+  }
 
   const COMMON_PERIODS = ['today', 'week', 'month', 'all'];
 
@@ -119,7 +142,7 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
       list = list.filter(t =>
         (t.title || '').toLowerCase().includes(q) ||
         (t.note || '').toLowerCase().includes(q) ||
-        allCategories[t.category]?.label.toLowerCase().includes(q) ||
+        (allCategories[t.category]?.label || '').toLowerCase().includes(q) ||
         (hasNum && t.amount === searchNum) ||
         (hasNum && t.amount.toString().includes(q))
       );
@@ -186,21 +209,41 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
               Transactions
             </div>
-            <button
-              onClick={downloadCSV}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                background: 'var(--accent-light)', color: 'var(--accent)',
-                fontSize: 12, fontWeight: 700, borderRadius: 8,
-                padding: '5px 10px', border: 'none', cursor: 'pointer',
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1v8M7 9L4 6M7 9l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-              Export
-            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                onClick={downloadCSV}
+                aria-label="Export transactions as CSV"
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: 'var(--accent-light)', color: 'var(--accent)',
+                  fontSize: 12, fontWeight: 700, borderRadius: 8,
+                  padding: '5px 10px', border: 'none', cursor: 'pointer',
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 1v8M7 9L4 6M7 9l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Export
+              </button>
+              {onDelete && (
+                <button
+                  onClick={selectMode ? exitSelectMode : () => setSelectMode(true)}
+                  aria-label={selectMode ? 'Cancel selection' : 'Select transactions'}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    background: selectMode ? 'var(--accent)' : 'var(--surface2)',
+                    color: selectMode ? '#fff' : 'var(--text-secondary)',
+                    fontSize: 12, fontWeight: 700, borderRadius: 8,
+                    padding: '5px 10px', border: selectMode ? 'none' : '1px solid var(--border)',
+                    cursor: 'pointer',
+                    transition: 'all 0.18s',
+                  }}
+                >
+                  {selectMode ? 'Cancel' : 'Select'}
+                </button>
+              )}
+            </div>
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>{filtered.length} records</span>
@@ -235,6 +278,7 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
             placeholder="Search transactions..."
             value={search}
             onChange={e => setSearch(e.target.value)}
+            aria-label="Search transactions"
           />
         </div>
 
@@ -322,13 +366,60 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
                   </span>
                 </div>
                 <div className="card" style={{ padding: '0 16px' }}>
-                  {txs.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} customCategories={customCategories} />)}
+                  {txs.map(tx => (
+                    <div key={tx.id} style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+                      {selectMode && (
+                        <div
+                          onClick={() => toggleSelect(tx.id)}
+                          style={{
+                            width: 20, height: 20, borderRadius: '50%', flexShrink: 0,
+                            border: selected.has(tx.id) ? 'none' : '2px solid var(--border)',
+                            background: selected.has(tx.id) ? 'var(--accent)' : 'var(--surface2)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', marginRight: 8, transition: 'all 0.15s',
+                          }}
+                        >
+                          {selected.has(tx.id) && (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                              <path d="M2.5 6L5 8.5L9.5 3.5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          )}
+                        </div>
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <TransactionItem tx={tx} onClick={selectMode ? () => toggleSelect(tx.id) : onEdit} customCategories={customCategories} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* Bulk Delete Bottom Bar */}
+      {selectMode && selected.size > 0 && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 999,
+          background: 'var(--surface)', borderTop: '1px solid var(--border)',
+          padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+            {selected.size} selected
+          </span>
+          <button
+            onClick={handleBulkDelete}
+            style={{
+              background: 'var(--danger)', color: '#fff', border: 'none',
+              borderRadius: 10, padding: '10px 20px', fontWeight: 700,
+              fontSize: 14, cursor: 'pointer',
+            }}
+          >
+            Delete All
+          </button>
+        </div>
+      )}
 
       {/* Custom Date Range Sheet */}
       {showCustom && (

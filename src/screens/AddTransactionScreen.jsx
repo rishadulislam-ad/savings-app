@@ -10,6 +10,35 @@ const CAT_COLORS = [
 
 const CAT_EMOJIS = ['🏷️','🎮','🏠','📚','🎵','⚽','🌿','🎁','🐾','🍕','☕','🚀','🌟','💡','🎨','🏋️'];
 
+// Smart category suggestions based on keywords
+const CATEGORY_KEYWORDS = {
+  eating_out: ['restaurant', 'dinner', 'lunch', 'breakfast', 'cafe', 'coffee', 'pizza', 'burger', 'sushi', 'takeout', 'takeaway', 'delivery', 'doordash', 'uber eats', 'grubhub', 'mcdonald', 'starbucks', 'kfc', 'subway', 'brunch', 'bar', 'pub', 'drinks'],
+  groceries: ['grocery', 'groceries', 'supermarket', 'walmart', 'costco', 'aldi', 'lidl', 'whole foods', 'trader joe', 'food', 'market', 'vegetables', 'fruits', 'meat', 'milk', 'eggs', 'bread'],
+  transport: ['gas', 'fuel', 'petrol', 'uber', 'lyft', 'taxi', 'bus', 'train', 'subway', 'metro', 'parking', 'toll', 'car wash', 'oil change', 'tire', 'mechanic', 'auto', 'flight', 'airline'],
+  entertainment: ['netflix', 'spotify', 'hulu', 'disney', 'movie', 'cinema', 'theater', 'concert', 'game', 'gaming', 'xbox', 'playstation', 'nintendo', 'steam', 'youtube', 'twitch', 'subscription'],
+  health: ['pharmacy', 'medicine', 'doctor', 'hospital', 'clinic', 'dentist', 'gym', 'fitness', 'vitamin', 'health', 'therapy', 'medical', 'prescription', 'insurance'],
+  shopping: ['amazon', 'ebay', 'clothes', 'shoes', 'shirt', 'pants', 'jacket', 'dress', 'electronics', 'phone', 'laptop', 'headphones', 'watch', 'jewelry', 'furniture', 'ikea', 'target', 'mall'],
+  salary: ['salary', 'paycheck', 'wage', 'pay', 'compensation', 'direct deposit'],
+  freelance: ['freelance', 'client', 'project', 'invoice', 'contract', 'gig', 'commission', 'consulting', 'side hustle'],
+  savings: ['savings', 'saved', 'emergency fund', 'invest', 'deposit'],
+};
+
+function suggestCategory(text) {
+  if (!text || text.length < 2) return null;
+  const lower = text.toLowerCase();
+  let bestMatch = null;
+  let bestScore = 0;
+  for (const [cat, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    for (const kw of keywords) {
+      if (lower.includes(kw) && kw.length > bestScore) {
+        bestMatch = cat;
+        bestScore = kw.length;
+      }
+    }
+  }
+  return bestMatch;
+}
+
 export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx, customCategories = [], customTags = [], onAddCustomCategory, onAddCustomTag }) {
   const isEditing = !!initialTx;
   const [type, setType] = useState(initialTx?.type || 'expense');
@@ -22,6 +51,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
   const [isRecurring, setIsRecurring] = useState(initialTx?.recurring || false);
   const [recurFreq, setRecurFreq] = useState(initialTx?.recurFreq || 'monthly');
+  const [receipt, setReceipt] = useState(initialTx?.receipt || null);
 
   // Custom category sheet state
   const [showAddCat, setShowAddCat]     = useState(false);
@@ -47,6 +77,24 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   // Merged tags: default + custom
   const allTags = [...DEFAULT_TAGS, ...customTags];
 
+  function handleReceiptUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) return; // 2MB limit
+    // Validate actual MIME type (not just extension)
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (!allowedTypes.includes(file.type)) return; // Block SVG (XSS risk) and non-images
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      // Verify it's actually a data URL for an image
+      if (typeof result === 'string' && result.startsWith('data:image/')) {
+        setReceipt(result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   function toggleTag(t) {
     setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   }
@@ -56,6 +104,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
     const parts = val.split('.');
     if (parts.length > 2) return;
     if (parts[1] && parts[1].length > 2) return;
+    if (parseFloat(val) > 999999.99) return; // Max amount limit
     setAmount(val);
   }
 
@@ -75,14 +124,17 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
       tx.recurring = true;
       tx.recurFreq = recurFreq;
     }
+    if (receipt) {
+      tx.receipt = receipt;
+    }
     onSave(tx);
     onClose();
   }
 
   function handleAddCategory() {
-    if (!newCatName.trim()) return;
+    if (!newCatName.trim() || newCatName.trim().length > 30) return;
     const newCat = {
-      id: `custom_${Date.now()}`,
+      id: `custom_${crypto.randomUUID()}`,
       label: newCatName.trim(),
       icon: newCatEmoji,
       color: newCatColor,
@@ -97,7 +149,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   }
 
   function handleAddCustomTag() {
-    const tag = customTagInput.trim();
+    const tag = customTagInput.trim().slice(0, 30); // Max 30 chars
     if (!tag) return;
     setTags(prev => prev.includes(tag) ? prev : [...prev, tag]);
     onAddCustomTag?.(tag);
@@ -113,7 +165,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-          <button onClick={onClose} style={{
+          <button onClick={onClose} aria-label="Close" style={{
             background: 'var(--surface2)', border: 'none', width: 36, height: 36,
             borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
@@ -189,6 +241,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
               value={amount}
               onChange={handleAmountInput}
               placeholder=""
+              aria-label="Transaction amount"
               style={{
                 position: 'absolute', inset: 0, opacity: 0, cursor: 'text',
                 fontSize: 48, width: '100%',
@@ -203,11 +256,31 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           <label className="form-label">Description</label>
           <input
             className="form-input"
+            maxLength={100}
             type="text"
             placeholder={`e.g. ${allCategories[category]?.label}`}
             value={title}
-            onChange={e => setTitle(e.target.value)}
+            onChange={e => {
+              setTitle(e.target.value);
+              // Smart category suggestion
+              if (!isEditing) {
+                const suggested = suggestCategory(e.target.value);
+                if (suggested && suggested !== category && allCategories[suggested]) {
+                  // Auto-switch type if needed
+                  if (['salary', 'freelance'].includes(suggested) && type === 'expense') setType('income');
+                  else if (!['salary', 'freelance'].includes(suggested) && type === 'income' && !['salary', 'freelance'].includes(category)) { /* keep type */ }
+                  setCategory(suggested);
+                }
+              }
+            }}
           />
+          {/* Smart suggestion hint */}
+          {!isEditing && title.length >= 3 && suggestCategory(title) && suggestCategory(title) === category && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 6, padding: '4px 8px', borderRadius: 6, background: 'var(--accent-light)' }}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round"><path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12"/></svg>
+              <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)' }}>Auto-categorized as {allCategories[category]?.label}</span>
+            </div>
+          )}
         </div>
 
         {/* Category */}
@@ -410,8 +483,70 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           />
         </div>
 
+        {/* Receipt */}
+        <div className="form-group">
+          <label className="form-label">Receipt</label>
+          <input
+            type="file"
+            accept="image/*"
+            id="receipt-upload"
+            style={{ display: 'none' }}
+            onChange={handleReceiptUpload}
+          />
+          {receipt ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <img
+                src={receipt}
+                alt="Receipt"
+                style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: 12,
+                  objectFit: 'cover',
+                  border: '1.5px solid var(--border)',
+                }}
+              />
+              <button
+                onClick={() => setReceipt(null)}
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  border: 'none',
+                  background: 'var(--surface2)',
+                  color: 'var(--text-tertiary)',
+                  fontSize: 14,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <label
+              htmlFor="receipt-upload"
+              style={{
+                display: 'block',
+                border: '1.5px dashed var(--border)',
+                borderRadius: 12,
+                padding: '14px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                color: 'var(--text-tertiary)',
+                fontSize: 13,
+                fontWeight: 600,
+              }}
+            >
+              {'📷 Attach Receipt'}
+            </label>
+          )}
+        </div>
+
         {/* Save Button */}
-        <button className="btn-primary" onClick={handleSave}>
+        <button className="btn-primary" onClick={handleSave} aria-label={isEditing ? 'Save changes' : 'Save transaction'}>
           {isEditing ? 'Save Changes' : (type === 'expense' ? '− Add Expense' : '+ Add Income')}
         </button>
       </div>

@@ -19,8 +19,13 @@ export default function TransactionItem({ tx, onClick, customCategories }) {
         <div className="tx-name">{tx.title}</div>
         <div className="tx-meta">{cat.label} · {dateStr}</div>
       </div>
-      <div className={`tx-amount ${tx.type}`}>
-        {tx.type === 'expense' ? '−' : '+'}{formatCurrency(tx.amount, currency)}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        {tx.receipt && (
+          <span style={{ fontSize: 12, opacity: 0.6 }} title="Has receipt">📷</span>
+        )}
+        <div className={`tx-amount ${tx.type}`}>
+          {tx.type === 'expense' ? '−' : '+'}{formatCurrency(tx.amount, currency)}
+        </div>
       </div>
     </div>
   );

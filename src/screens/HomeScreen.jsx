@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import DonutChart from '../components/DonutChart';
 import TransactionItem from '../components/TransactionItem';
 import { CATEGORIES, formatCurrency, groupByCategory } from '../data/transactions';
@@ -99,7 +99,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   const savingsPct = totalIncome > 0 ? Math.round((netBalance / totalIncome) * 100) : 0;
 
   // Reset selected bar when period or view changes
-  useMemo(() => { setSelectedBar(null); }, [datePeriod, viewMode]);
+  useEffect(() => { setSelectedBar(null); }, [datePeriod, viewMode]);
 
   // Daily chart: spending (or income) per day over the selected period
   const dailyChartData = useMemo(() => {
@@ -176,13 +176,14 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
 
           {/* Avatar */}
-          <div style={{
+          <div onClick={() => onNavigate?.('profile')} style={{
             width: 44, height: 44, borderRadius: '50%',
-            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+            background: 'var(--surface2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 18, cursor: 'pointer', boxShadow: '0 2px 8px rgba(102,126,234,0.4)',
+            fontSize: 22, cursor: 'pointer',
+            border: '2px solid rgba(102,126,234,0.3)',
           }}>
-            🧑‍💼
+            {currentUser?.avatar || '🧑‍💼'}
           </div>
         </div>
       </div>

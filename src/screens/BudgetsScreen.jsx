@@ -293,7 +293,7 @@ function AddCategorySheet({ onAdd, onClose }) {
 
 /* ─── Main Screen ─────────────────────────────────────────── */
 export default function BudgetsScreen({ transactions, datePeriod, onPeriodChange, currentUser }) {
-  const { currency } = useTheme();
+  const { currency, isDark } = useTheme();
   const budgetKey    = currentUser ? `findo_budgets_${currentUser.email}`     : 'findo_budgets_guest';
   const customCatKey = currentUser ? `findo_custom_cats_${currentUser.email}` : 'findo_custom_cats_guest';
 
@@ -451,6 +451,52 @@ export default function BudgetsScreen({ transactions, datePeriod, onPeriodChange
             </span>
           </div>
         </div>
+
+        {/* Budget Alerts */}
+        {(() => {
+          const alerts = allCatKeys.filter(k => {
+            const b = budgets[k] || 0;
+            const s = spendMap[k] || 0;
+            return b > 0 && (s / b) >= 0.8;
+          }).map(k => {
+            const cat = getCat(k);
+            const b = budgets[k] || 0;
+            const s = spendMap[k] || 0;
+            const pct = Math.round((s / b) * 100);
+            const over = s > b;
+            return { key: k, cat, pct, over, spent: s, budget: b };
+          });
+          if (alerts.length === 0) return null;
+          return (
+            <div className="card anim-fadeup" style={{
+              padding: '12px 14px', marginBottom: 16,
+              background: isDark ? 'rgba(239,68,68,0.06)' : '#FFF5F5',
+              border: `1px solid ${isDark ? 'rgba(239,68,68,0.15)' : '#FECACA'}`,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--danger)' }}>
+                  {alerts.length} budget{alerts.length > 1 ? 's' : ''} need attention
+                </span>
+              </div>
+              {alerts.map(a => (
+                <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0' }}>
+                  <span style={{ fontSize: 14 }}>{a.cat.icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', flex: 1 }}>{a.cat.label}</span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+                    background: a.over ? 'rgba(239,68,68,0.12)' : 'rgba(245,158,11,0.12)',
+                    color: a.over ? 'var(--danger)' : '#F59E0B',
+                  }}>
+                    {a.over ? `${a.pct}% — over budget!` : `${a.pct}% used`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Section header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

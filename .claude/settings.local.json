@@ -11,7 +11,12 @@
       "Bash(security find-internet-password -s github.com -a rishadulislam-ad)",
       "Bash(git remote add origin https://github.com/rishadulislam-ad/savings-app.git)",
       "Bash(git branch -M main)",
-      "Bash(git push -u origin main)"
+      "Bash(git push -u origin main)",
+      "Bash(npx prisma:*)",
+      "Bash(npx next:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git add:*)"
     ]
   }
 }

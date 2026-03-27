@@ -75,6 +75,46 @@ function AppInner() {
     }
   }, [customTags, currentUser]);
 
+  // Auto-generate recurring transactions on load
+  useEffect(() => {
+    if (!currentUser || transactions.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const recurring = transactions.filter(t => t.recurring);
+    const newTxs = [];
+
+    recurring.forEach(t => {
+      const lastDate = new Date(t.date);
+      let nextDate = new Date(lastDate);
+
+      if (t.recurFreq === 'weekly') nextDate.setDate(nextDate.getDate() + 7);
+      else if (t.recurFreq === 'yearly') nextDate.setFullYear(nextDate.getFullYear() + 1);
+      else nextDate.setMonth(nextDate.getMonth() + 1);
+
+      const nextStr = nextDate.toISOString().slice(0, 10);
+
+      // Check if we already have a transaction for this recurring item on or after the next date
+      const alreadyExists = transactions.some(existing =>
+        existing.title === t.title &&
+        existing.category === t.category &&
+        existing.amount === t.amount &&
+        existing.date >= nextStr
+      );
+
+      if (!alreadyExists && nextStr <= today) {
+        newTxs.push({
+          ...t,
+          id: Date.now() + Math.random(),
+          date: nextStr,
+          recurring: true,
+        });
+      }
+    });
+
+    if (newTxs.length > 0) {
+      setTransactions(prev => [...newTxs, ...prev]);
+    }
+  }, [currentUser]); // Only run on login/load
+
   function handleSave(tx) {
     if (editingTx) {
       setTransactions(prev => prev.map(t => t.id === editingTx.id ? { ...tx, id: editingTx.id } : t));
@@ -82,6 +122,14 @@ function AppInner() {
     } else {
       setTransactions(prev => [{ ...tx, id: Date.now() }, ...prev]);
     }
+  }
+
+  function handleUpdateUser(updates) {
+    setCurrentUser(prev => {
+      const updated = { ...prev, ...updates };
+      localStorage.setItem('findo_session', JSON.stringify(updated));
+      return updated;
+    });
   }
 
   function handleAuth(user, userTransactions) {
@@ -118,9 +166,28 @@ function AppInner() {
     setShowAdd(true);
   }
 
+  const [deletedTx, setDeletedTx] = useState(null);
+  const [undoTimer, setUndoTimer] = useState(null);
+
   function handleDelete(id) {
+    const tx = transactions.find(t => t.id === id);
     setTransactions(prev => prev.filter(t => t.id !== id));
     handleCloseAdd();
+    // Show undo toast
+    if (tx) {
+      if (undoTimer) clearTimeout(undoTimer);
+      setDeletedTx(tx);
+      const timer = setTimeout(() => setDeletedTx(null), 5000);
+      setUndoTimer(timer);
+    }
+  }
+
+  function handleUndo() {
+    if (deletedTx) {
+      setTransactions(prev => [deletedTx, ...prev]);
+      setDeletedTx(null);
+      if (undoTimer) clearTimeout(undoTimer);
+    }
   }
 
   function handleCloseAdd() {
@@ -176,6 +243,8 @@ function AppInner() {
             currentUser={currentUser}
             onLogout={handleLogout}
             onNavigate={setActiveTab}
+            onAddTransaction={handleSave}
+            onUpdateUser={handleUpdateUser}
             customCategories={customCategories}
             customTags={customTags}
             onAddCustomCategory={addCustomCategory}
@@ -205,6 +274,34 @@ function AppInner() {
           />
         )}
       </div>
+
+      {/* Undo Delete Toast */}
+      {deletedTx && (
+        <div style={{
+          position: 'fixed', bottom: 90, left: 0, right: 0,
+          display: 'flex', justifyContent: 'center', zIndex: 9999,
+          animation: 'fadeUp 0.3s ease both', pointerEvents: 'none',
+        }}>
+        <div style={{
+          background: 'var(--text-primary)', color: 'var(--bg)', padding: '10px 16px',
+          borderRadius: 14, display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
+          maxWidth: 'calc(100% - 40px)', pointerEvents: 'auto',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+          </svg>
+          <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>Transaction deleted</span>
+          <button onClick={handleUndo} style={{
+            background: 'var(--accent)', color: '#fff', border: 'none', padding: '5px 14px',
+            borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
+          }}>Undo</button>
+          <div onClick={() => setDeletedTx(null)} style={{ cursor: 'pointer', flexShrink: 0, padding: 2 }}>
+            <svg width="12" height="12" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+          </div>
+        </div>
+        </div>
+      )}
     </div>
   );
 }

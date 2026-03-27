@@ -112,10 +112,18 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
     if (activeRange) {
       list = list.filter(t => t.date >= activeRange.from && t.date <= activeRange.to);
     }
-    if (search) list = list.filter(t =>
-      t.title.toLowerCase().includes(search.toLowerCase()) ||
-      allCategories[t.category]?.label.toLowerCase().includes(search.toLowerCase())
-    );
+    if (search) {
+      const q = search.toLowerCase().trim();
+      const searchNum = parseFloat(q.replace(/[^0-9.]/g, ''));
+      const hasNum = !isNaN(searchNum) && searchNum > 0;
+      list = list.filter(t =>
+        (t.title || '').toLowerCase().includes(q) ||
+        (t.note || '').toLowerCase().includes(q) ||
+        allCategories[t.category]?.label.toLowerCase().includes(q) ||
+        (hasNum && t.amount === searchNum) ||
+        (hasNum && t.amount.toString().includes(q))
+      );
+    }
     return list;
   }, [transactions, typeFilter, activeRange, search]);
 
@@ -141,6 +149,30 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
 
+  function downloadCSV() {
+    const header = ['Date', 'Type', 'Category', 'Title/Note', 'Amount', 'Currency'];
+    const rows = filtered.map(t => [
+      t.date,
+      t.type,
+      allCategories[t.category]?.label || t.category,
+      (t.title || t.note || '').replace(/"/g, '""'),
+      t.amount,
+      currency,
+    ]);
+    const csvContent = [header, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `findo-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   const activeDateLabel = datePreset === 'custom'
     ? `${customFrom} → ${customTo}`
     : DATE_PRESETS.find(p => p.id === datePreset)?.label;
@@ -150,8 +182,25 @@ export default function TransactionsScreen({ transactions, onEdit, datePeriod, o
       {/* Header */}
       <div style={{ padding: '48px 20px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-            Transactions
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
+              Transactions
+            </div>
+            <button
+              onClick={downloadCSV}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                background: 'var(--accent-light)', color: 'var(--accent)',
+                fontSize: 12, fontWeight: 700, borderRadius: 8,
+                padding: '5px 10px', border: 'none', cursor: 'pointer',
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path d="M7 1v8M7 9L4 6M7 9l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M2 11h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+              Export
+            </button>
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
             <span>{filtered.length} records</span>

@@ -8,6 +8,7 @@ export const CATEGORIES = {
   childcare:      { label: 'Childcare',      icon: '👶', color: '#0A6CFF', bg: '#EFF6FF' },
   salary:         { label: 'Salary',         icon: '💼', color: '#10B981', bg: '#ECFDF5' },
   freelance:      { label: 'Freelance',      icon: '💻', color: '#10B981', bg: '#ECFDF5' },
+  savings:        { label: 'Savings',         icon: '🏦', color: '#10B981', bg: '#ECFDF5' },
   other:          { label: 'Other',          icon: '📦', color: '#6B7280', bg: '#F9FAFB' },
 };
 

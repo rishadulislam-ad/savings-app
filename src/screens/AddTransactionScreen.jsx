@@ -20,6 +20,8 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   const [tags, setTags] = useState(initialTx?.tags || []);
   const [note, setNote] = useState(initialTx?.note || '');
   const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
+  const [isRecurring, setIsRecurring] = useState(initialTx?.recurring || false);
+  const [recurFreq, setRecurFreq] = useState(initialTx?.recurFreq || 'monthly');
 
   // Custom category sheet state
   const [showAddCat, setShowAddCat]     = useState(false);
@@ -59,7 +61,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
 
   function handleSave() {
     if (!amount || parseFloat(amount) <= 0) return;
-    onSave({
+    const tx = {
       type,
       amount: parseFloat(amount),
       title: title || allCategories[category]?.label || 'Transaction',
@@ -68,7 +70,12 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
       tags,
       note,
       date,
-    });
+    };
+    if (isRecurring) {
+      tx.recurring = true;
+      tx.recurFreq = recurFreq;
+    }
+    onSave(tx);
     onClose();
   }
 
@@ -262,6 +269,42 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
             value={date}
             onChange={e => setDate(e.target.value)}
           />
+        </div>
+
+        {/* Recurring Toggle */}
+        <div className="form-group">
+          <label className="form-label">Recurring</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div onClick={() => setIsRecurring(!isRecurring)} style={{
+              width: 48, height: 28, borderRadius: 14, cursor: 'pointer',
+              background: isRecurring ? 'var(--accent)' : 'var(--border)',
+              position: 'relative', transition: 'background 0.25s ease', flexShrink: 0,
+            }}>
+              <div style={{
+                position: 'absolute', top: 3, left: isRecurring ? 23 : 3,
+                width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+              }} />
+            </div>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {isRecurring ? 'This transaction repeats' : 'One-time transaction'}
+            </span>
+          </div>
+          {isRecurring && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              {['weekly', 'monthly', 'yearly'].map(freq => (
+                <button key={freq} onClick={() => setRecurFreq(freq)} style={{
+                  flex: 1, padding: '8px 6px', borderRadius: 10,
+                  background: recurFreq === freq ? 'var(--accent-light)' : 'var(--surface2)',
+                  color: recurFreq === freq ? 'var(--accent)' : 'var(--text-secondary)',
+                  border: recurFreq === freq ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize',
+                  transition: 'all 0.15s ease',
+                }}>{freq}</button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Wallet */}

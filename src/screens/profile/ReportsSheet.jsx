@@ -28,8 +28,8 @@ export default function ReportsSheet({ onClose, transactions, currency }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '48px 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+    <div className="sheet-slide-in" style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+      <div className="safe-top" style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>Reports</div>
         <div onClick={onClose} style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round"/></svg>
@@ -69,18 +69,18 @@ export default function ReportsSheet({ onClose, transactions, currency }) {
                   <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{formatPeriod(period)}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{data.count} transactions</div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 12 }}>
-                  <div style={{ padding: '8px', borderRadius: 8, background: 'rgba(16,185,129,0.06)', textAlign: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12 }}>
+                  <div style={{ padding: '8px 4px', borderRadius: 8, background: 'rgba(16,185,129,0.06)', textAlign: 'center', overflow: 'hidden' }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Income</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--success)', marginTop: 2 }}>{formatCurrency(data.income, currency)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--success)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrency(data.income, currency)}</div>
                   </div>
-                  <div style={{ padding: '8px', borderRadius: 8, background: 'rgba(239,68,68,0.06)', textAlign: 'center' }}>
+                  <div style={{ padding: '8px 4px', borderRadius: 8, background: 'rgba(239,68,68,0.06)', textAlign: 'center', overflow: 'hidden' }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Expense</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--danger)', marginTop: 2 }}>{formatCurrency(data.expense, currency)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--danger)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrency(data.expense, currency)}</div>
                   </div>
-                  <div style={{ padding: '8px', borderRadius: 8, background: balance >= 0 ? 'rgba(10,108,255,0.06)' : 'rgba(239,68,68,0.06)', textAlign: 'center' }}>
+                  <div style={{ padding: '8px 4px', borderRadius: 8, background: balance >= 0 ? 'rgba(10,108,255,0.06)' : 'rgba(239,68,68,0.06)', textAlign: 'center', overflow: 'hidden' }}>
                     <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase' }}>Balance</div>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: balance >= 0 ? 'var(--accent)' : 'var(--danger)', marginTop: 2 }}>{formatCurrency(balance, currency)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: balance >= 0 ? 'var(--accent)' : 'var(--danger)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrency(balance, currency)}</div>
                   </div>
                 </div>
                 <div style={{ height: 6, borderRadius: 3, background: 'var(--surface2)', overflow: 'hidden', marginBottom: 8 }}>

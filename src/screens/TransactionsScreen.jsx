@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 import TransactionItem from '../components/TransactionItem';
 import { CATEGORIES, formatCurrency } from '../data/transactions';
+import FeatureTip from '../components/FeatureTip';
 import { useTheme } from '../context/ThemeContext';
+import { lightTap, successTap, errorTap } from '../utils/haptics';
 
 const TYPE_FILTERS = ['All', 'Expense', 'Income'];
 
@@ -62,7 +66,7 @@ function getDateRange(presetId) {
   }
 }
 
-export default function TransactionsScreen({ transactions, onEdit, onDelete, datePeriod, onPeriodChange, customCategories }) {
+export default function TransactionsScreen({ transactions, onEdit, onDelete, datePeriod, onPeriodChange, customCategories, currentUser }) {
   const { currency } = useTheme();
   const allCategories = customCategories?.length
     ? { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) }
@@ -75,6 +79,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
   const [customTo, setCustomTo]         = useState('');
   const [selectMode, setSelectMode]     = useState(false);
   const [selected, setSelected]         = useState(new Set());
+  const [exportToast, setExportToast]   = useState('');
 
   function toggleSelect(id) {
     setSelected(prev => {
@@ -92,6 +97,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
 
   function handleBulkDelete() {
     if (!onDelete || selected.size === 0) return;
+    errorTap();
     const ids = [...selected];
     ids.forEach(id => onDelete(id));
     exitSelectMode();
@@ -148,7 +154,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
       );
     }
     return list;
-  }, [transactions, typeFilter, activeRange, search]);
+  }, [transactions, typeFilter, activeRange, search, allCategories]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -172,7 +178,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
   }
 
-  function downloadCSV() {
+  async function downloadCSV() {
     const header = ['Date', 'Type', 'Category', 'Title/Note', 'Amount', 'Currency'];
     const rows = filtered.map(t => [
       t.date,
@@ -185,15 +191,40 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
     const csvContent = [header, ...rows]
       .map(row => row.map(cell => `"${cell}"`).join(','))
       .join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `findo-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const fileName = `coinova-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    try {
+      const result = await Filesystem.writeFile({
+        path: fileName,
+        data: btoa(new TextEncoder().encode(csvContent).reduce((s, b) => s + String.fromCharCode(b), '')),
+        directory: Directory.Cache,
+      });
+      await Share.share({
+        title: 'Coinova Transactions',
+        url: result.uri,
+      });
+      successTap();
+      setExportToast('Exported successfully');
+    } catch {
+      // Fallback for web
+      try {
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        successTap();
+        setExportToast('Exported successfully');
+      } catch {
+        errorTap();
+        setExportToast('Export failed');
+      }
+    }
+    setTimeout(() => setExportToast(''), 2500);
   }
 
   const activeDateLabel = datePreset === 'custom'
@@ -203,7 +234,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <div style={{ padding: '48px 20px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div className="safe-top" style={{ padding: '0 20px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
@@ -228,7 +259,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
               </button>
               {onDelete && (
                 <button
-                  onClick={selectMode ? exitSelectMode : () => setSelectMode(true)}
+                  onClick={selectMode ? exitSelectMode : () => { lightTap(); setSelectMode(true); }}
                   aria-label={selectMode ? 'Cancel selection' : 'Select transactions'}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5,
@@ -294,7 +325,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
           {TYPE_FILTERS.map(f => (
             <button
               key={f}
-              onClick={() => setTypeFilter(f)}
+              onClick={() => { lightTap(); setTypeFilter(f); }}
               style={{
                 flex: 1,
                 padding: '8px 0',
@@ -321,7 +352,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
             return (
               <button
                 key={p.id}
-                onClick={() => handlePreset(p.id)}
+                onClick={() => { lightTap(); handlePreset(p.id); }}
                 style={{
                   flexShrink: 0,
                   padding: '6px 14px',
@@ -444,7 +475,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
                 className="form-input"
                 type="date"
                 value={customFrom}
-                max={customTo || new Date().toISOString().slice(0,10)}
+                max={customTo || undefined}
                 onChange={e => setCustomFrom(e.target.value)}
               />
             </div>
@@ -508,7 +539,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
               </button>
               <button
                 onClick={applyCustom}
-                disabled={!customFrom || !customTo}
+                disabled={!customFrom || !customTo || customFrom > customTo}
                 style={{
                   flex: 2, padding: '14px',
                   background: customFrom && customTo ? 'linear-gradient(145deg, #1A7FFF, #0052CC)' : 'var(--border)',
@@ -525,6 +556,18 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
           </div>
         </div>
       )}
+
+      {/* Export toast */}
+      {exportToast && (
+        <div style={{
+          position: 'fixed', bottom: 100, left: '50%', transform: 'translateX(-50%)',
+          padding: '10px 20px', borderRadius: 12, fontSize: 13, fontWeight: 600,
+          background: exportToast.includes('fail') ? 'var(--danger)' : 'var(--success)',
+          color: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.3)', zIndex: 999,
+          animation: 'fadeIn 0.2s ease both',
+        }}>{exportToast}</div>
+      )}
+      <FeatureTip tipId="transactions" currentUser={currentUser} />
     </div>
   );
 }

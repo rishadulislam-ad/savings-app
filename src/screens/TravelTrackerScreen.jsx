@@ -1,5 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { CURRENCIES } from '../data/transactions';
+import { lightTap, successTap, errorTap } from '../utils/haptics';
+import FeatureTip from '../components/FeatureTip';
+import { saveUserData } from '../utils/firestore';
 
 /* ─── Data ──────────────────────────────────────────────────── */
 const DESTINATIONS = [
@@ -46,14 +49,14 @@ const DESTINATIONS = [
 ];
 
 const CARD_GRADIENTS = [
-  ['#667eea', '#764ba2'],
-  ['#f093fb', '#f5576c'],
-  ['#4facfe', '#00f2fe'],
-  ['#43e97b', '#38f9d7'],
-  ['#fa709a', '#fee140'],
-  ['#30cfd0', '#5433FF'],
-  ['#ff9a9e', '#fad0c4'],
-  ['#0A6CFF', '#0044B8'],
+  ['#3a3fa0', '#4a2878'],
+  ['#a0285a', '#c02040'],
+  ['#1a60a8', '#0078a8'],
+  ['#18804a', '#108868'],
+  ['#b84818', '#c86010'],
+  ['#1888a0', '#2818c0'],
+  ['#a03050', '#804030'],
+  ['#0A5CDD', '#003098'],
 ];
 
 /* Travel expense categories */
@@ -225,6 +228,7 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
 
   function handleSave() {
     if (!isValid) return;
+    successTap();
     onSave({
       // preserve original id when editing, generate new id when adding
       id:       isEdit ? initialExpense.id : `exp_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -239,7 +243,7 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
   return (
     <div
       onClick={onClose}
-      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 200, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -267,7 +271,7 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
               <input
                 type="number" min="0" step="any" value={amount}
                 onChange={e => setAmount(e.target.value)}
-                placeholder="0.00" autoFocus
+                placeholder="0.00"
                 style={{ fontSize: 44, fontWeight: 800, color: 'var(--text-primary)', background: 'transparent', border: 'none', outline: 'none', width: 200, textAlign: 'center', fontFamily: 'inherit' }}
               />
             </div>
@@ -307,10 +311,20 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
           {/* Date */}
           <div style={{ marginBottom: 24 }}>
             <div style={labelStyle}>Date</div>
-            <input
-              type="date" value={date} onChange={e => setDate(e.target.value)}
-              style={{ width: '100%', padding: '11px 12px', borderRadius: 12, border: `1.5px solid ${date ? 'var(--accent)' : 'var(--border)'}`, background: 'var(--surface2)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
-            />
+            <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 12 }}>
+              <div style={{
+                padding: '11px 12px', borderRadius: 12,
+                border: `1.5px solid ${date ? 'var(--accent)' : 'var(--border)'}`,
+                background: 'var(--surface2)', color: 'var(--text-primary)',
+                fontSize: 13, textAlign: 'center', boxSizing: 'border-box',
+              }}>
+                {date ? new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select date'}
+              </div>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                opacity: 0, cursor: 'pointer', fontSize: 16, margin: 0, padding: 0, border: 'none',
+              }} />
+            </div>
           </div>
 
           {/* Save */}
@@ -331,7 +345,7 @@ function DeleteConfirmSheet({ tripName, onConfirm, onCancel }) {
   return (
     <div
       onClick={onCancel}
-      style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 300, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.15s ease both' }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.15s ease both' }}
     >
       <div
         onClick={e => e.stopPropagation()}
@@ -361,8 +375,34 @@ function DeleteConfirmSheet({ tripName, onConfirm, onCancel }) {
 /* ─── Trip Book Screen ──────────────────────────────────────── */
 function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
   const [showAdd,           setShowAdd]           = useState(false);
-  const [editingExpense,    setEditingExpense]     = useState(null); // expense obj or null
+  const [editingExpense,    setEditingExpense]     = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showEditTrip,      setShowEditTrip]       = useState(false);
+  const [editName,          setEditName]           = useState(trip.name);
+  const [editBudget,        setEditBudget]         = useState(String(trip.budget || ''));
+  const [editStartDate,     setEditStartDate]      = useState(trip.startDate || '');
+  const [editEndDate,       setEditEndDate]        = useState(trip.endDate || '');
+
+  function openEditTrip() {
+    setEditName(trip.name);
+    setEditBudget(String(trip.budget || ''));
+    setEditStartDate(trip.startDate || '');
+    setEditEndDate(trip.endDate || '');
+    setShowEditTrip(true);
+  }
+
+  function saveEditTrip() {
+    if (!editName.trim()) return;
+    successTap();
+    onUpdate({
+      ...trip,
+      name: editName.trim(),
+      budget: parseFloat(editBudget) || 0,
+      startDate: editStartDate,
+      endDate: editEndDate,
+    });
+    setShowEditTrip(false);
+  }
 
   const [g0, g1]   = trip.gradient || ['#667eea', '#764ba2'];
   const sym        = getCurrencySymbol(trip.currency);
@@ -394,6 +434,7 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
     onUpdate({ ...trip, expenses: expenses.map(e => e.id === updated.id ? updated : e) });
   }
   function deleteExpense(id) {
+    errorTap();
     onUpdate({ ...trip, expenses: expenses.filter(e => e.id !== id) });
   }
 
@@ -401,7 +442,7 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative', background: 'var(--bg)' }}>
 
       {/* ── Hero Header ── */}
-      <div style={{ background: `linear-gradient(135deg, ${g0}, ${g1})`, padding: '48px 20px 22px', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+      <div className="safe-top" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})`, padding: '0 20px 22px', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
         {/* Decorative flag */}
         <div style={{ position: 'absolute', top: -10, right: -10, fontSize: 110, opacity: 0.13, lineHeight: 1, userSelect: 'none', pointerEvents: 'none' }}>{trip.flag}</div>
 
@@ -410,9 +451,14 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
           <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', backdropFilter: 'blur(8px)' }}>
             <BackIcon />
           </button>
-          <button onClick={() => setShowDeleteConfirm(true)} style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', backdropFilter: 'blur(8px)' }}>
-            <TrashIcon />
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={openEditTrip} style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', backdropFilter: 'blur(8px)' }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
+            <button onClick={() => setShowDeleteConfirm(true)} style={{ width: 36, height: 36, borderRadius: 12, background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.28)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', backdropFilter: 'blur(8px)' }}>
+              <TrashIcon />
+            </button>
+          </div>
         </div>
 
         {/* Trip info */}
@@ -462,7 +508,7 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
 
         {/* Empty state */}
         {expenses.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+          <div style={{ textAlign: 'center', padding: '16px 24px' }}>
             <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8, letterSpacing: '-0.3px' }}>No expenses yet</div>
             <div style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.6, marginBottom: 28 }}>
               Tap the <strong>+</strong> button to log your first spending entry in {trip.currency}
@@ -593,6 +639,55 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
           onCancel={() => setShowDeleteConfirm(false)}
         />
       )}
+
+      {/* Edit Trip Sheet */}
+      {showEditTrip && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end' }}>
+          <div onClick={() => setShowEditTrip(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+          <div onClick={e => e.stopPropagation()} style={{
+            position: 'relative', width: '100%', background: 'var(--surface)',
+            borderRadius: '24px 24px 0 0', padding: '16px 20px 34px',
+            animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
+            maxHeight: '85%', overflowY: 'auto',
+          }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto 20px' }} />
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.4px', marginBottom: 20 }}>Edit Trip</div>
+
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>Trip Name</div>
+              <input value={editName} onChange={e => setEditName(e.target.value)} maxLength={32} className="form-input" style={{ fontSize: 15 }} />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>Budget ({getCurrencySymbol(trip.currency)})</div>
+              <input value={editBudget} onChange={e => setEditBudget(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" inputMode="decimal" className="form-input" style={{ fontSize: 15 }} />
+            </div>
+
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>Start Date</div>
+              <input type="date" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="form-input" style={{ fontSize: 15 }} />
+            </div>
+
+            <div style={{ marginBottom: 22 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>End Date</div>
+              <input type="date" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} min={editStartDate || undefined} className="form-input" style={{ fontSize: 15 }} />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowEditTrip(false)} style={{
+                flex: 1, padding: 14, borderRadius: 12, border: '1.5px solid var(--border)',
+                background: 'var(--surface2)', color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}>Cancel</button>
+              <button onClick={saveEditTrip} disabled={!editName.trim()} style={{
+                flex: 1, padding: 14, borderRadius: 12, border: 'none',
+                background: editName.trim() ? 'var(--accent)' : 'var(--surface2)',
+                color: editName.trim() ? '#fff' : 'var(--text-tertiary)',
+                fontSize: 14, fontWeight: 700, cursor: editName.trim() ? 'pointer' : 'not-allowed',
+              }}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -615,6 +710,7 @@ function CreateTripSheet({ onSave, onClose }) {
 
   function handleSave() {
     if (!isValid) return;
+    successTap();
     onSave({
       id:          `trip_${Date.now()}`,
       name:        tripName.trim(),
@@ -635,7 +731,7 @@ function CreateTripSheet({ onSave, onClose }) {
   const selCurInfo = CURRENCIES.find(c => c.code === currency);
 
   return (
-    <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
       <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', maxHeight: '93%', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ padding: '0 20px 44px' }}>
           <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 20px' }}/>
@@ -704,11 +800,24 @@ function CreateTripSheet({ onSave, onClose }) {
               </div>
 
               {/* Dates */}
-              <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
                 {[['Start Date', startDate, setStartDate], ['End Date', endDate, setEndDate]].map(([lbl, val, setter]) => (
-                  <div key={lbl} style={{ flex: 1 }}>
+                  <div key={lbl} style={{ flex: 1, minWidth: 0 }}>
                     <div style={labelStyle}>{lbl}</div>
-                    <input type="date" value={val} onChange={e => setter(e.target.value)} style={{ width: '100%', padding: '11px 12px', borderRadius: 12, border: `1.5px solid ${val ? 'var(--accent)' : 'var(--border)'}`, background: 'var(--surface2)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+                    <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 12 }}>
+                      <div style={{
+                        padding: '11px 8px', borderRadius: 12,
+                        border: `1.5px solid ${val ? 'var(--accent)' : 'var(--border)'}`,
+                        background: 'var(--surface2)', color: 'var(--text-primary)',
+                        fontSize: 13, textAlign: 'center', boxSizing: 'border-box',
+                      }}>
+                        {val ? new Date(val + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Select'}
+                      </div>
+                      <input type="date" value={val} onChange={e => setter(e.target.value)} style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        opacity: 0, cursor: 'pointer', fontSize: 16, margin: 0, padding: 0, border: 'none',
+                      }} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -805,8 +914,8 @@ function TripCard({ trip, onPress }) {
 }
 
 /* ─── Main Screen ───────────────────────────────────────────── */
-export default function TravelTrackerScreen({ currentUser, onBack }) {
-  const key = currentUser ? `findo_trips_${currentUser.email}` : 'findo_trips_guest';
+export default function TravelTrackerScreen({ currentUser, onBack, registerBackHandler }) {
+  const key = currentUser ? `coinova_trips_${currentUser.uid}` : 'coinova_trips_guest';
 
   const [trips,        setTrips]        = useState(() => {
     try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : []; } catch { return []; }
@@ -814,9 +923,32 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
   const [showCreate,   setShowCreate]   = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
+  // Re-read trips from localStorage when Firestore sync delivers new data from another device
+  useEffect(() => {
+    function handleSync() {
+      try {
+        const saved = localStorage.getItem(key);
+        if (saved) setTrips(JSON.parse(saved));
+      } catch {}
+    }
+    window.addEventListener('coinova-data-sync', handleSync);
+    return () => window.removeEventListener('coinova-data-sync', handleSync);
+  }, [key]);
+
+  useEffect(() => {
+    if (!registerBackHandler) return;
+    registerBackHandler(() => {
+      if (selectedTrip) { setSelectedTrip(null); return true; }
+      if (showCreate) { setShowCreate(false); return true; }
+      return false;
+    });
+    return () => registerBackHandler(null);
+  }, [selectedTrip, showCreate, registerBackHandler]);
+
   function saveTrips(next) {
     setTrips(next);
     localStorage.setItem(key, JSON.stringify(next));
+    if (currentUser?.uid) saveUserData(currentUser.uid, { trips: next });
   }
 
   function addTrip(trip)    { saveTrips([trip, ...trips]); }
@@ -828,6 +960,7 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
   }
 
   function deleteTrip(id) {
+    errorTap();
     saveTrips(trips.filter(t => t.id !== id));
     setSelectedTrip(null);
   }
@@ -863,7 +996,7 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
       {/* ── Header ── */}
-      <div style={{ padding: '48px 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div className="safe-top" style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button onClick={onBack} style={{ width: 36, height: 36, borderRadius: 12, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)', flexShrink: 0 }}>
             <BackIcon />
@@ -874,9 +1007,6 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
               {trips.length === 0 ? 'Create trip books for each journey' : `${trips.length} trip${trips.length !== 1 ? 's' : ''} · ${byStatus.active.length} active`}
             </div>
           </div>
-          <button onClick={() => setShowCreate(true)} style={{ width: 36, height: 36, borderRadius: 12, background: 'var(--accent)', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', flexShrink: 0, boxShadow: '0 4px 12px rgba(10,108,255,0.35)' }}>
-            <PlusIcon />
-          </button>
         </div>
       </div>
 
@@ -888,14 +1018,14 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
             <div style={{ fontSize: 72, marginBottom: 16 }}>✈️</div>
             <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8, letterSpacing: '-0.3px' }}>No trips yet</div>
             <div style={{ fontSize: 14, color: 'var(--text-tertiary)', marginBottom: 28, lineHeight: 1.5 }}>Create a travel book for each destination to track your spending across currencies</div>
-            <button onClick={() => setShowCreate(true)} style={{ padding: '13px 32px', borderRadius: 14, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(10,108,255,0.35)' }}>
+            <button data-tour="travel-create-first" onClick={() => setShowCreate(true)} style={{ padding: '13px 32px', borderRadius: 14, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', boxShadow: '0 4px 14px rgba(10,108,255,0.35)' }}>
               + Create First Trip
             </button>
           </div>
         ) : (
           <>
             {/* Stats */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+            <div data-tour="travel-stats" style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
               {stats.map(s => (
                 <div key={s.label} className="card anim-fadeup" style={{ flex: 1, padding: '10px 6px', textAlign: 'center' }}>
                   <div style={{ fontSize: 18 }}>{s.icon}</div>
@@ -913,7 +1043,7 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
               list.length === 0 ? null : (
                 <div key={label}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10, marginTop: 4 }}>{label}</div>
-                  {list.map(t => <TripCard key={t.id} trip={t} onPress={() => setSelectedTrip(t)} />)}
+                  {list.map((t, i) => <div key={t.id} {...(i === 0 && label === 'Active' ? { 'data-tour': 'travel-trip' } : {})}><TripCard trip={t} onPress={() => setSelectedTrip(t)} /></div>)}
                 </div>
               )
             )}
@@ -921,7 +1051,19 @@ export default function TravelTrackerScreen({ currentUser, onBack }) {
         )}
       </div>
 
+      {/* Floating Add Button */}
+      <button onClick={() => { lightTap(); setShowCreate(true); }} style={{
+        position: 'absolute', bottom: 28, left: '50%', transform: 'translateX(-50%)',
+        width: 56, height: 56, borderRadius: '50%',
+        background: 'var(--accent)', border: 'none', color: '#fff',
+        fontSize: 28, fontWeight: 300, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        boxShadow: '0 6px 24px rgba(79,110,247,0.4)',
+        zIndex: 10,
+      }}><PlusIcon /></button>
+
       {showCreate && <CreateTripSheet onSave={addTrip} onClose={() => setShowCreate(false)} />}
+      <FeatureTip tipId="travel" currentUser={currentUser} />
     </div>
   );
 }

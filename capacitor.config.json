@@ -1,0 +1,38 @@
+{
+  "appId": "com.coinova.app",
+  "appName": "Coinova",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#0E0F14",
+    "preferredContentMode": "mobile",
+    "allowsLinkPreview": false
+  },
+  "android": {
+    "backgroundColor": "#0E0F14",
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "985643050956-nno9t52tggabra5slqorc0v2582s08uc.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
+    },
+    "StatusBar": {
+      "overlaysWebView": true,
+      "style": "Dark"
+    },
+    "Keyboard": {
+      "resize": "none",
+      "resizeOnFullScreen": false
+    },
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#0E0F14",
+      "showSpinner": false
+    }
+  }
+}

@@ -1,3 +1,11 @@
+/* Self-hosted Inter font */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 300; font-display: swap; src: url('/fonts/inter-300.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/inter-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/inter-500.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/inter-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('/fonts/inter-700.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap; src: url('/fonts/inter-800.woff2') format('woff2'); }
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -68,53 +76,69 @@
 html, body, #root {
   height: 100%;
   width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+}
+
+html {
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
 }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #1A1A2E;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Mobile / native — full screen, no centering */
 #root {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .phone-shell {
-  width: 393px;
-  height: 852px;
+  width: 100%;
+  height: 100%;
   background: var(--bg);
-  border-radius: 52px;
   overflow: hidden;
   position: relative;
-  box-shadow:
-    0 0 0 1px rgba(255,255,255,0.08),
-    0 30px 80px rgba(0,0,0,0.5),
-    inset 0 0 0 1px rgba(255,255,255,0.05);
 }
 
-@media (max-height: 860px) {
+/* Desktop only — show as centered phone frame */
+@media (min-width: 501px) and (min-height: 901px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #root {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+  }
   .phone-shell {
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
-    box-shadow: none;
+    width: 393px;
+    height: 852px;
+    border-radius: 52px;
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.08),
+      0 30px 80px rgba(0,0,0,0.5),
+      inset 0 0 0 1px rgba(255,255,255,0.05);
   }
 }
 
-@media (max-width: 400px) {
-  .phone-shell {
-    width: 100vw;
-    height: 100vh;
-    border-radius: 0;
-    box-shadow: none;
-  }
+/* Native app — always full screen */
+body.capacitor, body.capacitor #root, body.capacitor .phone-shell {
+  width: 100vw !important;
+  height: 100vh !important;
+  height: 100dvh !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 
 .screen {
@@ -124,9 +148,27 @@ body {
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;
-  padding-top: env(safe-area-inset-top);
+  /* Safe area handled by .screen-safe-top class on header elements.
+     NOT here — to avoid dual-tone background (--bg vs --surface). */
+  padding-top: 0;
   padding-bottom: 0;
   box-sizing: border-box;
+}
+
+/*
+ * Safe area top padding for screen headers.
+ * Applied via CSS class because env() does NOT work in inline style="" on iOS WebKit.
+ * Each header div adds this class — its own background extends into the safe area,
+ * preventing the dual-tone issue (--bg showing behind --surface header).
+ *
+ * On desktop (no safe area): env() returns 0, fallback 32px gives the phone-frame spacing.
+ * On native iOS: env() returns ~59px (Dynamic Island), giving proper clearance.
+ */
+.safe-top {
+  padding-top: calc(env(safe-area-inset-top, 32px) + 6px) !important;
+}
+body.capacitor-ios .safe-top {
+  padding-top: calc(env(safe-area-inset-top, 32px) + 0px) !important;
 }
 
 /* Scrollable content area */
@@ -165,9 +207,9 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   align-items: flex-start;
-  justify-content: space-around;
-  padding-top: 12px;
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  justify-content: space-evenly;
+  padding-top: 10px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 8px) - 10px);
   flex-shrink: 0;
   position: relative;
 }
@@ -177,12 +219,13 @@ body {
   align-items: center;
   gap: 4px;
   cursor: pointer;
-  padding: 4px 16px;
+  padding: 4px 8px;
   border-radius: var(--radius-sm);
   transition: all 0.2s ease;
+  flex: 1;
+  min-width: 0;
   background: none;
   border: none;
-  flex: 1;
 }
 .nav-item .nav-icon {
   width: 24px;
@@ -203,10 +246,12 @@ body {
 
 /* FAB Add Button */
 .fab-container {
-  position: absolute;
+  position: relative;
   top: -22px;
-  left: 50%;
-  transform: translateX(-50%);
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
 }
 .fab {
   width: 56px;
@@ -233,9 +278,6 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-/* Utility */
-.px-20 { padding-left: 20px; padding-right: 20px; }
-.py-12 { padding-top: 12px; padding-bottom: 12px; }
 
 /* Animations */
 @keyframes fadeUp {
@@ -256,7 +298,6 @@ body {
 }
 
 .anim-fadeup { animation: fadeUp 0.4s ease both; }
-.anim-scalein { animation: scaleIn 0.35s ease both; }
 
 @keyframes screenSlide {
   from { opacity: 0; transform: translateX(18px); }
@@ -274,12 +315,20 @@ body {
   animation: screenSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
+@keyframes sheetSlideIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.sheet-slide-in {
+  animation: sheetSlideIn 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
 /* Sheet / Modal */
 .sheet-overlay {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.4);
-  z-index: 100;
+  z-index: 900;
   display: flex;
   align-items: flex-end;
   animation: fadeIn 0.2s ease;
@@ -293,7 +342,7 @@ body {
   padding: 16px 20px 34px;
   animation: slideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
   max-height: 92%;
-  overflow-y: auto;
+  overflow: hidden;
 }
 @keyframes slideUp {
   from { transform: translateY(100%); }
@@ -332,22 +381,43 @@ body {
   outline: none;
   transition: border-color 0.2s, background 0.2s;
 }
+/* Center date inputs on iOS WebKit */
+.form-input[type="date"] {
+  text-align: center;
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 48px;
+  padding: 14px 16px;
+}
+.form-input[type="date"]::-webkit-date-and-time-value {
+  text-align: center;
+  line-height: normal;
+}
+/* Range slider thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 3px solid var(--surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
 .form-input:focus {
   border-color: var(--accent);
   background: var(--surface);
 }
-.form-select-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
-  background: var(--surface2);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  border: 1.5px solid transparent;
-  transition: border-color 0.2s;
+
+/* Ensure focused inputs scroll into view on mobile keyboards */
+input:focus, textarea:focus {
+  scroll-margin-bottom: 120px;
 }
-.form-select-row:active { border-color: var(--accent); }
+.screen-content {
+  scroll-padding-bottom: 120px;
+}
 
 /* Chip / Tag */
 .chip {
@@ -592,24 +662,6 @@ body {
   padding: 0;
 }
 
-/* Badge */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.badge-up {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--success);
-}
-.badge-down {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--danger);
-}
 
 /* Progress bar */
 .progress-bar-track {

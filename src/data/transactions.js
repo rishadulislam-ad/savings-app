@@ -69,34 +69,21 @@ export const CURRENCIES = [
   { code: 'KES', symbol: 'KSh', name: 'Kenyan Shilling',    flag: '🇰🇪', region: 'Africa' },
 ];
 
-export const INITIAL_TRANSACTIONS = [
-  { id: 1,  type: 'expense', amount: 22.55,  category: 'eating_out',    title: 'Burger Palace',    date: '2026-03-02', wallet: 'main',  tags: ['lunch'] },
-  { id: 2,  type: 'expense', amount: 22.55,  category: 'eating_out',    title: 'Morning Coffee',   date: '2026-03-02', wallet: 'main',  tags: ['coffee'] },
-  { id: 3,  type: 'expense', amount: 289.96, category: 'childcare',     title: 'Daycare Fee',      date: '2026-03-01', wallet: 'main',  tags: ['family'] },
-  { id: 4,  type: 'expense', amount: 142.08, category: 'groceries',     title: 'Weekly Groceries', date: '2026-03-01', wallet: 'main',  tags: ['food', 'weekly'] },
-  { id: 5,  type: 'expense', amount: 25.35,  category: 'transport',     title: 'Monthly Transit',  date: '2026-03-01', wallet: 'main',  tags: [] },
-  { id: 6,  type: 'income',  amount: 3200,   category: 'salary',        title: 'March Salary',     date: '2026-03-01', wallet: 'main',  tags: ['work'] },
-  { id: 7,  type: 'expense', amount: 18.99,  category: 'entertainment', title: 'Netflix',          date: '2026-02-28', wallet: 'main',  tags: ['subscriptions'] },
-  { id: 8,  type: 'expense', amount: 67.40,  category: 'shopping',      title: 'ZARA',             date: '2026-02-27', wallet: 'main',  tags: ['clothes'] },
-  { id: 9,  type: 'expense', amount: 45.00,  category: 'health',        title: 'Gym Membership',   date: '2026-02-26', wallet: 'main',  tags: ['health'] },
-  { id: 10, type: 'income',  amount: 850,    category: 'freelance',     title: 'Design Project',   date: '2026-02-25', wallet: 'main',  tags: ['work'] },
-  { id: 11, type: 'expense', amount: 12.50,  category: 'eating_out',    title: 'Sushi Bar',        date: '2026-02-24', wallet: 'cash',  tags: ['dinner'] },
-  { id: 12, type: 'expense', amount: 89.99,  category: 'groceries',     title: 'Whole Foods',      date: '2026-02-23', wallet: 'main',  tags: ['food'] },
-];
-
 export function formatCurrency(amount, currencyCode = 'USD', withSign = false) {
   if (amount === null || amount === undefined || !isFinite(amount) || isNaN(amount)) {
     const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
-    return `${cur.symbol}0.00`;
+    return `${cur.symbol}0`;
   }
   const cur = CURRENCIES.find(c => c.code === currencyCode) || CURRENCIES[0];
   const noDecimals = ['JPY', 'KRW', 'VND', 'IDR'].includes(currencyCode);
+  const hasDecimals = !noDecimals && Math.abs(amount) % 1 !== 0;
   let formatted;
   try {
     formatted = new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: currencyCode,
-      minimumFractionDigits: noDecimals ? 0 : 2,
+      minimumFractionDigits: hasDecimals ? 2 : 0,
+      maximumFractionDigits: hasDecimals ? 2 : 0,
     }).format(Math.abs(amount));
     // If Intl outputs the ISO code instead of a symbol, replace with our custom symbol
     if (formatted.includes(currencyCode)) {
@@ -104,8 +91,8 @@ export function formatCurrency(amount, currencyCode = 'USD', withSign = false) {
     }
   } catch {
     const num = Math.abs(amount).toLocaleString('en-US', {
-      minimumFractionDigits: noDecimals ? 0 : 2,
-      maximumFractionDigits: noDecimals ? 0 : 2,
+      minimumFractionDigits: hasDecimals ? 2 : 0,
+      maximumFractionDigits: hasDecimals ? 2 : 0,
     });
     formatted = `${cur.symbol}${num}`;
   }

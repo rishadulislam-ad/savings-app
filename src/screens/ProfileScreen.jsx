@@ -1,972 +1,25 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { formatCurrency, CURRENCIES, CATEGORIES } from '../data/transactions';
 import CurrencyPicker from '../components/CurrencyPicker';
-import ReportsSheet from './profile/ReportsSheet';
 import MyFinances from './profile/MyFinances';
+import ReportsSheet from './profile/ReportsSheet';
 
-const OTHER_SETTINGS = [
-  { icon: '🔔', label: 'Notifications',   sub: 'Push & Email on' },
-  { icon: '🔒', label: 'Security',        sub: 'Face ID on' },
-  { icon: '❓', label: 'Help & Support',  sub: 'FAQ, Contact us' },
-  { icon: '⭐', label: 'Rate Findo',      sub: 'Love the app?' },
-];
-
-const CAT_COLORS = [
-  '#667eea', '#f97316', '#ec4899', '#10b981',
-  '#f59e0b', '#06b6d4', '#8b5cf6', '#ef4444',
-];
-
-const CAT_EMOJIS = ['🏷️','🎮','🏠','📚','🎵','⚽','🌿','🎁','🐾','🍕','☕','🚀','🌟','💡','🎨','🏋️'];
-
-/* ─── Card Gradients ─────────────────────────────────────────── */
-const CARD_GRADIENTS = [
-  { id: 'navy',    gradient: 'linear-gradient(135deg, #0D0D2B 0%, #1B1B5E 40%, #2E3191 100%)' },
-  { id: 'dark',    gradient: 'linear-gradient(135deg, #141414 0%, #1e1e30 55%, #0f0f1e 100%)' },
-  { id: 'gold',    gradient: 'linear-gradient(135deg, #3B2000 0%, #8B5E00 45%, #C8940C 75%, #9A6C00 100%)' },
-  { id: 'forest',  gradient: 'linear-gradient(135deg, #0A1A2E 0%, #0E3D35 50%, #145244 100%)' },
-  { id: 'galaxy',  gradient: 'linear-gradient(135deg, #1A0338 0%, #3D1A7A 45%, #7B41D0 100%)' },
-  { id: 'sunset',  gradient: 'linear-gradient(135deg, #8B1500 0%, #C93B08 40%, #E8720F 75%, #F5A520 100%)' },
-  { id: 'rose',    gradient: 'linear-gradient(135deg, #4A0028 0%, #921058 45%, #C83080 100%)' },
-  { id: 'ocean',   gradient: 'linear-gradient(135deg, #001640 0%, #003399 45%, #0055D4 100%)' },
-];
-
-/* ─── Card Graphic ───────────────────────────────────────────── */
-function CardGraphic({ card, size = 'full', showNumber = false }) {
-  const gradObj = CARD_GRADIENTS.find(g => g.id === card.gradient) || CARD_GRADIENTS[0];
-  const sm = size === 'small';
-  const digits = (card.number || '').replace(/\D/g, '');
-
-  const numDisplay = showNumber && digits.length > 0
-    ? [0,1,2,3].map(i => (digits.slice(i*4, i*4+4) || '••••').padEnd(4,'•')).join('  ')
-    : [0,1,2,3].map(i => i < 3 ? '••••' : (digits.slice(12) || '••••')).join('  ');
-
-  return (
-    <div style={{
-      background: gradObj.gradient,
-      borderRadius: sm ? 14 : 22,
-      padding: sm ? '14px 16px' : '24px 26px',
-      aspectRatio: '1.586',
-      position: 'relative',
-      overflow: 'hidden',
-      color: '#fff',
-      userSelect: 'none',
-      border: '1px solid rgba(255,255,255,0.13)',
-      boxShadow: sm
-        ? '0 8px 28px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.14)'
-        : '0 32px 72px rgba(0,0,0,0.55), 0 10px 28px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.15)',
-      transform: sm ? undefined : 'perspective(1400px) rotateX(5deg) rotateY(-4deg)',
-      transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-    }}>
-      {/* Gloss shine overlay */}
-      <div style={{
-        position: 'absolute', inset: 0, zIndex: 3, pointerEvents: 'none', borderRadius: 'inherit',
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0.06) 38%, rgba(255,255,255,0) 62%)',
-      }} />
-      {/* Bottom-edge dark depth */}
-      <div style={{
-        position: 'absolute', bottom: 0, left: 0, right: 0, height: '35%', zIndex: 2, pointerEvents: 'none',
-        background: 'linear-gradient(to top, rgba(0,0,0,0.2) 0%, transparent 100%)',
-      }} />
-      {/* Decorative glow circles */}
-      <div style={{ position: 'absolute', top: '-28%', right: '-14%', width: '56%', height: '56%', borderRadius: '50%', background: 'rgba(255,255,255,0.07)', pointerEvents: 'none' }} />
-      <div style={{ position: 'absolute', bottom: '-22%', left: '-8%', width: '44%', height: '44%', borderRadius: '50%', background: 'rgba(255,255,255,0.04)', pointerEvents: 'none' }} />
-
-      {/* Top: chip + network */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: sm ? 12 : 26, position: 'relative', zIndex: 4 }}>
-        {/* EMV Chip */}
-        <div style={{
-          width: sm ? 28 : 44, height: sm ? 20 : 33,
-          borderRadius: sm ? 4 : 7,
-          background: 'linear-gradient(145deg, #deb84a 0%, #f7e070 30%, #e8c535 55%, #b8900a 100%)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -1px 0 rgba(0,0,0,0.2)',
-          position: 'relative', overflow: 'hidden', flexShrink: 0,
-        }}>
-          <div style={{ position: 'absolute', top: '30%', left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.18)' }} />
-          <div style={{ position: 'absolute', top: '63%', left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.18)' }} />
-          <div style={{ position: 'absolute', left: '33%', top: 0, bottom: 0, width: 1, background: 'rgba(0,0,0,0.18)' }} />
-          <div style={{ position: 'absolute', left: '66%', top: 0, bottom: 0, width: 1, background: 'rgba(0,0,0,0.18)' }} />
-          {/* Chip shine */}
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(145deg, rgba(255,255,255,0.3) 0%, transparent 55%)', borderRadius: 'inherit' }} />
-        </div>
-        {/* Network logo */}
-        <div style={{ zIndex: 1 }}>
-          {card.network === 'visa' && (
-            <span style={{ fontStyle: 'italic', fontWeight: 900, fontSize: sm ? 17 : 30, letterSpacing: '-0.5px', fontFamily: 'Georgia, "Times New Roman", serif', textShadow: '0 2px 8px rgba(0,0,0,0.5)', lineHeight: 1 }}>VISA</span>
-          )}
-          {card.network === 'mastercard' && (
-            <div style={{ position: 'relative', width: sm ? 34 : 52, height: sm ? 20 : 32 }}>
-              <div style={{ position: 'absolute', left: 0, top: 0, width: sm ? 20 : 32, height: sm ? 20 : 32, borderRadius: '50%', background: '#EB001B', opacity: 0.93, boxShadow: '0 2px 6px rgba(0,0,0,0.4)' }} />
-              <div style={{ position: 'absolute', right: 0, top: 0, width: sm ? 20 : 32, height: sm ? 20 : 32, borderRadius: '50%', background: '#F79E1B', opacity: 0.88, boxShadow: '0 2px 6px rgba(0,0,0,0.4)' }} />
-            </div>
-          )}
-          {card.network === 'amex' && (
-            <span style={{ fontWeight: 900, fontSize: sm ? 11 : 15, letterSpacing: '0.15em', textShadow: '0 2px 6px rgba(0,0,0,0.5)' }}>AMEX</span>
-          )}
-          {(!card.network || card.network === 'other') && (
-            <span style={{ fontWeight: 700, fontSize: sm ? 11 : 15, opacity: 0.85 }}>{card.label || '●●●'}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Card number */}
-      <div style={{
-        fontFamily: '"Courier New", Courier, monospace',
-        fontSize: sm ? 13 : 19,
-        fontWeight: 700,
-        letterSpacing: sm ? 2 : 3.5,
-        marginBottom: sm ? 10 : 20,
-        position: 'relative', zIndex: 4, opacity: 0.97,
-        textShadow: '0 2px 6px rgba(0,0,0,0.45), 0 -0.5px 0 rgba(255,255,255,0.12)',
-      }}>
-        {numDisplay}
-      </div>
-
-      {/* Bottom: name + expiry */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', position: 'relative', zIndex: 4 }}>
-        <div style={{ overflow: 'hidden', flex: 1, marginRight: 8 }}>
-          <div style={{ fontSize: sm ? 7 : 9, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: sm ? 2 : 3, textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>Card Holder</div>
-          <div style={{ fontSize: sm ? 11 : 14, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textShadow: '0 2px 5px rgba(0,0,0,0.4), 0 -0.5px 0 rgba(255,255,255,0.12)' }}>
-            {card.name || 'YOUR NAME'}
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: sm ? 7 : 9, opacity: 0.55, textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: sm ? 2 : 3, textShadow: '0 1px 3px rgba(0,0,0,0.4)' }}>Expires</div>
-          <div style={{ fontSize: sm ? 11 : 14, fontWeight: 700, fontFamily: '"Courier New", Courier, monospace', textShadow: '0 2px 5px rgba(0,0,0,0.4), 0 -0.5px 0 rgba(255,255,255,0.12)' }}>
-            {card.expiry || 'MM/YY'}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ─── Cards Sheet ────────────────────────────────────────────── */
-function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, currentUser }) {
-  const [view,           setView]           = useState('list');
-  const [selectedCard,   setSelectedCard]   = useState(null);
-  const [showFullNumber, setShowFullNumber] = useState(false);
-  const [cardNumber,   setCardNumber]   = useState('');
-  const [cardName,     setCardName]     = useState(currentUser?.name?.toUpperCase() || '');
-  const [cardExpiry,   setCardExpiry]   = useState('');
-  const [cardCVC,      setCardCVC]      = useState('');
-  const [cardNetwork,  setCardNetwork]  = useState('visa');
-  const [cardGradient, setCardGradient] = useState('navy');
-  const [cardLabel,    setCardLabel]    = useState('');
-
-  const previewCard = { number: cardNumber.replace(/\s/g, ''), name: cardName, expiry: cardExpiry, network: cardNetwork, gradient: cardGradient, label: cardLabel };
-
-  function handleNumberInput(val) {
-    const d = val.replace(/\D/g, '').slice(0, 16);
-    setCardNumber(d.replace(/(.{4})/g, '$1 ').trim());
-    if (d[0] === '4') setCardNetwork('visa');
-    else if (d[0] === '5' || d[0] === '2') setCardNetwork('mastercard');
-    else if (d[0] === '3') setCardNetwork('amex');
-  }
-
-  function handleExpiryInput(val) {
-    let clean = val.replace(/[^0-9/]/g, '');
-    if (clean.length === 2 && !clean.includes('/') && val.length > cardExpiry.length) clean += '/';
-    if (clean.length > 5) clean = clean.slice(0, 5);
-    setCardExpiry(clean);
-  }
-
-  const canSave = cardNumber.replace(/\s/g, '').length >= 13 && cardName.trim() && cardExpiry.length === 5 && cardCVC.length >= 3;
-
-  function handleSaveCard() {
-    if (!canSave) return;
-    onAddCard({
-      id: `card_${Date.now()}`,
-      label: cardLabel.trim() || (cardNetwork.charAt(0).toUpperCase() + cardNetwork.slice(1) + ' Card'),
-      name: cardName.trim(),
-      number: '****' + cardNumber.replace(/\D/g, '').slice(-4),
-      expiry: cardExpiry,
-      network: cardNetwork,
-      gradient: cardGradient,
-    });
-    setView('list');
-  }
-
-  return (
-    <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', padding: '0 20px 48px', maxHeight: '93%', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.2)' }}>
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 0' }} />
-
-        {/* ── View Card ── */}
-        {view === 'view' && selectedCard && (
-          <div style={{ paddingTop: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-              <button onClick={() => { setView('list'); setShowFullNumber(false); }} style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)' }}>←</button>
-              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>{selectedCard.label}</div>
-            </div>
-            <CardGraphic card={selectedCard} size="full" showNumber={showFullNumber} />
-            <div style={{ background: 'var(--surface2)', borderRadius: 16, padding: '18px', marginTop: 20 }}>
-              <div style={{ paddingBottom: 14, borderBottom: '1px solid var(--border)', marginBottom: 14 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Card Number</div>
-                <div style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: 3 }}>
-                  {`•••• •••• •••• ${selectedCard.number.slice(-4)}`}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 28 }}>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Expires</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{selectedCard.expiry}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>CVC / CVV</div>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontStyle: 'italic' }}>Not stored for security</div>
-                </div>
-              </div>
-            </div>
-            <button onClick={() => { onDeleteCard(selectedCard.id); setView('list'); }} style={{ marginTop: 14, width: '100%', padding: '14px', background: 'rgba(239,68,68,0.08)', border: '1.5px solid rgba(239,68,68,0.25)', borderRadius: 14, color: '#ef4444', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
-              🗑 Remove Card
-            </button>
-          </div>
-        )}
-
-        {/* ── Add Card ── */}
-        {view === 'add' && (
-          <div style={{ paddingTop: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-              <button onClick={() => setView('list')} style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)' }}>←</button>
-              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>New Card</div>
-            </div>
-
-            {/* Live card preview */}
-            <div style={{ marginBottom: 22 }}>
-              <CardGraphic card={previewCard} size="full" />
-            </div>
-
-            {/* Style picker */}
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Card Style</div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 20, overflowX: 'auto', scrollbarWidth: 'none', paddingBottom: 2 }}>
-              {CARD_GRADIENTS.map(g => (
-                <div key={g.id} onClick={() => setCardGradient(g.id)} style={{ width: 48, height: 30, borderRadius: 9, background: g.gradient, flexShrink: 0, cursor: 'pointer', transition: 'box-shadow 0.15s', boxShadow: cardGradient === g.id ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--accent)` : '0 2px 8px rgba(0,0,0,0.22)' }} />
-              ))}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Card Number</label>
-              <input className="form-input" type="text" inputMode="numeric" placeholder="0000 0000 0000 0000" value={cardNumber} onChange={e => handleNumberInput(e.target.value)} maxLength={19} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Cardholder Name</label>
-              <input className="form-input" type="text" placeholder="YOUR NAME" value={cardName} onChange={e => setCardName(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }} />
-            </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">Expiry</label>
-                <input className="form-input" type="text" inputMode="numeric" placeholder="MM/YY" value={cardExpiry} onChange={e => handleExpiryInput(e.target.value)} maxLength={5} />
-              </div>
-              <div className="form-group" style={{ flex: 1 }}>
-                <label className="form-label">CVC / CVV</label>
-                <input className="form-input" type="password" inputMode="numeric" placeholder="•••" value={cardCVC} onChange={e => setCardCVC(e.target.value.replace(/\D/g, '').slice(0, 4))} maxLength={4} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Network</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {[['visa','Visa'],['mastercard','Mastercard'],['amex','Amex'],['other','Other']].map(([n, lbl]) => (
-                  <button key={n} onClick={() => setCardNetwork(n)} style={{ flex: 1, padding: '9px 4px', borderRadius: 10, border: `1.5px solid ${cardNetwork === n ? 'var(--accent)' : 'var(--border)'}`, background: cardNetwork === n ? 'var(--accent-light)' : 'var(--surface2)', color: cardNetwork === n ? 'var(--accent)' : 'var(--text-secondary)', fontSize: 11, fontWeight: 700, cursor: 'pointer', transition: 'all 0.15s' }}>{lbl}</button>
-                ))}
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Label <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></label>
-              <input className="form-input" type="text" placeholder="e.g. Personal, Work, Travel..." value={cardLabel} onChange={e => setCardLabel(e.target.value)} />
-            </div>
-
-            <button onClick={handleSaveCard} className="btn-primary" style={{ opacity: canSave ? 1 : 0.4, transition: 'opacity 0.2s' }} disabled={!canSave}>
-              ✓ Save Card
-            </button>
-          </div>
-        )}
-
-        {/* ── Card List ── */}
-        {view === 'list' && (
-          <div style={{ paddingTop: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>My Cards</div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>{cards.length} {cards.length === 1 ? 'card' : 'cards'} saved</div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setView('add')} style={{ padding: '8px 16px', borderRadius: 12, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>+ Add</button>
-                <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 16 }}>✕</button>
-              </div>
-            </div>
-
-            {cards.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '44px 0 24px' }}>
-                <div style={{ marginBottom: 14, display: 'flex', justifyContent: 'center' }}><svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="3"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>No cards saved</div>
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 24, lineHeight: 1.5 }}>Store your card details for quick reference</div>
-                <button onClick={() => setView('add')} style={{ padding: '12px 28px', borderRadius: 14, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>+ Add Your First Card</button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                {cards.map(card => (
-                  <div key={card.id} onClick={() => { setSelectedCard(card); setView('view'); setShowCVC(false); }} style={{ cursor: 'pointer' }}>
-                    <CardGraphic card={card} size="small" />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingLeft: 2 }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{card.label}</div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)', fontFamily: 'monospace' }}>•••• {card.number.slice(-4)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Categories & Tags Management Sheet ─────────────────────── */
-function CategoriesTagsSheet({ onClose, customCategories, customTags, onAddCustomCategory, onDeleteCustomCategory, onAddCustomTag, onDeleteCustomTag }) {
-  const [view, setView]               = useState('list'); // 'list' | 'addCat'
-  const [newCatEmoji, setNewCatEmoji] = useState('🏷️');
-  const [newCatName, setNewCatName]   = useState('');
-  const [newCatColor, setNewCatColor] = useState('#667eea');
-  const [newTagInput, setNewTagInput] = useState('');
-  const [showTagInput, setShowTagInput] = useState(false);
-
-  function handleAddCategory() {
-    if (!newCatName.trim()) return;
-    onAddCustomCategory({
-      id: `custom_${Date.now()}`,
-      label: newCatName.trim(),
-      icon: newCatEmoji,
-      color: newCatColor,
-      bg: `${newCatColor}22`,
-    });
-    setNewCatName('');
-    setNewCatEmoji('🏷️');
-    setNewCatColor('#667eea');
-    setView('list');
-  }
-
-  function handleAddTag() {
-    const tag = newTagInput.trim();
-    if (!tag) return;
-    onAddCustomTag(tag);
-    setNewTagInput('');
-    setShowTagInput(false);
-  }
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)',
-        zIndex: 100, display: 'flex', alignItems: 'flex-end',
-        animation: 'fadeIn 0.2s ease both',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: '100%', background: 'var(--surface)',
-          borderRadius: '22px 22px 0 0', padding: '0 20px 48px',
-          maxHeight: '88%', overflowY: 'auto',
-          animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
-          boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
-        }}
-      >
-        {/* Handle */}
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 0' }} />
-
-        {/* ── Add Category Sub-view ── */}
-        {view === 'addCat' && (
-          <div style={{ paddingTop: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-              <button
-                onClick={() => setView('list')}
-                style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)' }}
-              >←</button>
-              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>New Category</div>
-            </div>
-
-            {/* Emoji + Name */}
-            <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: 14,
-                border: '1.5px solid var(--border)',
-                background: newCatColor + '22',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26,
-              }}>{newCatEmoji}</div>
-              <input
-                type="text"
-                value={newCatName}
-                onChange={e => setNewCatName(e.target.value)}
-                placeholder="Category name…"
-                className="form-input"
-                style={{ flex: 1, margin: 0 }}
-                autoFocus
-              />
-            </div>
-
-            {/* Emoji picker */}
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>Icon</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 18 }}>
-              {CAT_EMOJIS.map(em => (
-                <button key={em} onClick={() => setNewCatEmoji(em)}
-                  style={{
-                    width: 38, height: 38, borderRadius: 10,
-                    border: `2px solid ${newCatEmoji === em ? newCatColor : 'var(--border)'}`,
-                    background: newCatEmoji === em ? newCatColor + '22' : 'var(--surface2)',
-                    fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    transition: 'all 0.15s',
-                  }}
-                >{em}</button>
-              ))}
-            </div>
-
-            {/* Color picker */}
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 10 }}>Color</div>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 24 }}>
-              {CAT_COLORS.map(col => (
-                <div key={col} onClick={() => setNewCatColor(col)}
-                  style={{
-                    width: 32, height: 32, borderRadius: '50%', background: col,
-                    cursor: 'pointer', flexShrink: 0,
-                    boxShadow: newCatColor === col ? `0 0 0 2px var(--surface), 0 0 0 4px ${col}` : 'none',
-                    transition: 'box-shadow 0.15s',
-                  }}
-                />
-              ))}
-            </div>
-
-            <button onClick={handleAddCategory} className="btn-primary" style={{ opacity: !newCatName.trim() ? 0.45 : 1 }}>
-              ✓ Save Category
-            </button>
-          </div>
-        )}
-
-        {/* ── Main List View ── */}
-        {view === 'list' && (
-          <div style={{ paddingTop: 20 }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.3px' }}>
-                  Categories & Tags
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  Manage your custom categories and tags
-                </div>
-              </div>
-              <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--surface2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 16 }}>✕</button>
-            </div>
-
-            {/* ── Custom Categories section ── */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Custom Categories
-              </div>
-              <button
-                onClick={() => setView('addCat')}
-                style={{
-                  padding: '5px 12px', borderRadius: 20, border: 'none',
-                  background: 'var(--accent)', color: '#fff',
-                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                }}
-              >+ Add</button>
-            </div>
-
-            {customCategories.length === 0 ? (
-              <div style={{
-                padding: '20px', background: 'var(--surface2)', borderRadius: 14,
-                textAlign: 'center', marginBottom: 20,
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>🏷️</div>
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                  No custom categories yet
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                  Tap "+ Add" to create your first one
-                </div>
-              </div>
-            ) : (
-              <div style={{ background: 'var(--surface2)', borderRadius: 14, padding: '0 14px', marginBottom: 20 }}>
-                {customCategories.map((cat, i) => (
-                  <div key={cat.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0',
-                    borderBottom: i < customCategories.length - 1 ? '1px solid var(--border)' : 'none',
-                  }}>
-                    <div style={{
-                      width: 38, height: 38, borderRadius: 11,
-                      background: cat.color + '22',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
-                    }}>{cat.icon}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{cat.label}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: cat.color }} />
-                        <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Custom</span>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => onDeleteCustomCategory(cat.id)}
-                      style={{
-                        width: 30, height: 30, borderRadius: 9,
-                        background: 'rgba(239,68,68,0.1)', border: 'none',
-                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        color: '#ef4444', fontSize: 14, flexShrink: 0,
-                      }}
-                    >✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* ── Custom Tags section ── */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Custom Tags
-              </div>
-              {!showTagInput && (
-                <button
-                  onClick={() => setShowTagInput(true)}
-                  style={{
-                    padding: '5px 12px', borderRadius: 20, border: 'none',
-                    background: 'var(--accent)', color: '#fff',
-                    fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                  }}
-                >+ Add</button>
-              )}
-            </div>
-
-            {/* Add tag input */}
-            {showTagInput && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-                <input
-                  autoFocus
-                  type="text"
-                  value={newTagInput}
-                  onChange={e => setNewTagInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddTag(); if (e.key === 'Escape') { setNewTagInput(''); setShowTagInput(false); } }}
-                  placeholder="Tag name…"
-                  className="form-input"
-                  style={{ flex: 1, margin: 0 }}
-                />
-                <button onClick={handleAddTag}
-                  style={{ padding: '0 16px', borderRadius: 12, border: 'none', background: 'var(--accent)', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}
-                >Add</button>
-                <button onClick={() => { setNewTagInput(''); setShowTagInput(false); }}
-                  style={{ padding: '0 12px', borderRadius: 12, border: 'none', background: 'var(--surface2)', color: 'var(--text-secondary)', fontWeight: 600, fontSize: 13, cursor: 'pointer', flexShrink: 0 }}
-                >Cancel</button>
-              </div>
-            )}
-
-            {customTags.length === 0 && !showTagInput ? (
-              <div style={{
-                padding: '20px', background: 'var(--surface2)', borderRadius: 14,
-                textAlign: 'center', marginBottom: 20,
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 6 }}>🔖</div>
-                <div style={{ fontSize: 13, color: 'var(--text-tertiary)', fontWeight: 500 }}>
-                  No custom tags yet
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                  Tap "+ Add" to create your first tag
-                </div>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                {customTags.map(tag => (
-                  <div key={tag} style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '6px 10px 6px 12px', borderRadius: 20,
-                    background: 'var(--accent-light)',
-                    border: '1px solid rgba(10,108,255,0.2)',
-                  }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{tag}</span>
-                    <button
-                      onClick={() => onDeleteCustomTag(tag)}
-                      style={{
-                        width: 18, height: 18, borderRadius: '50%', border: 'none',
-                        background: 'rgba(10,108,255,0.15)', color: 'var(--accent)',
-                        fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontWeight: 700, flexShrink: 0,
-                      }}
-                    >✕</button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Note about built-in tags */}
-            <div style={{ padding: '10px 14px', background: 'var(--surface2)', borderRadius: 12, marginTop: 4 }}>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
-                💡 Default tags (Food, Work, Family, etc.) are always available in transactions. Custom tags appear alongside them.
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ─── Currency Converter Sheet ──────────────────────────────── */
-function CurrencyConverterSheet({ onClose, defaultCurrency }) {
-  const [fromCur,    setFromCur]    = useState(defaultCurrency || 'USD');
-  const [toCur,      setToCur]      = useState(defaultCurrency === 'USD' ? 'EUR' : 'USD');
-  const [amount,     setAmount]     = useState('100');
-  const [rates,      setRates]      = useState(null);
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [pickerMode, setPickerMode] = useState(null); // 'from' | 'to' | null
-  const [search,     setSearch]     = useState('');
-
-  async function fetchRates() {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('https://open.exchangerate-api.com/v6/latest/USD');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      if (data.result === 'success') {
-        setRates(data.rates);
-        setLastUpdated(new Date());
-      } else {
-        throw new Error('Bad response');
-      }
-    } catch {
-      setError('Could not fetch live rates. Check your connection.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { fetchRates(); }, []);
-
-  /* Convert: from → USD → to */
-  const convertedAmount = useMemo(() => {
-    if (!rates || !amount) return null;
-    const a = parseFloat(amount);
-    if (isNaN(a) || a < 0) return null;
-    const usdAmount = fromCur === 'USD' ? a : a / rates[fromCur];
-    return usdAmount * (rates[toCur] || 1);
-  }, [rates, fromCur, toCur, amount]);
-
-  const exchangeRate = useMemo(() => {
-    if (!rates) return null;
-    const usdAmount = fromCur === 'USD' ? 1 : 1 / rates[fromCur];
-    return usdAmount * (rates[toCur] || 1);
-  }, [rates, fromCur, toCur]);
-
-  function swapCurrencies() {
-    setFromCur(toCur);
-    setToCur(fromCur);
-  }
-
-  function selectCurrency(code) {
-    if (pickerMode === 'from') setFromCur(code);
-    else                       setToCur(code);
-    setPickerMode(null);
-    setSearch('');
-  }
-
-  const fromInfo = CURRENCIES.find(c => c.code === fromCur) || CURRENCIES[0];
-  const toInfo   = CURRENCIES.find(c => c.code === toCur)   || CURRENCIES[0];
-
-  const timeAgo = lastUpdated
-    ? (() => {
-        const s = Math.floor((Date.now() - lastUpdated) / 1000);
-        if (s < 60)  return 'just now';
-        if (s < 3600) return `${Math.floor(s/60)}m ago`;
-        return `${Math.floor(s/3600)}h ago`;
-      })()
-    : null;
-
-  const filteredCurrencies = useMemo(() =>
-    CURRENCIES.filter(c =>
-      c.code.toLowerCase().includes(search.toLowerCase()) ||
-      c.name.toLowerCase().includes(search.toLowerCase())
-    ), [search]);
-
-  return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.45)',
-        zIndex: 100, display: 'flex', alignItems: 'flex-end',
-        animation: 'fadeIn 0.2s ease both',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: '100%', background: 'var(--surface)',
-          borderRadius: '22px 22px 0 0', padding: '0 20px 44px',
-          maxHeight: '92%', overflowY: 'auto',
-          animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
-          boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
-        }}
-      >
-        {/* Handle */}
-        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 0' }}/>
-
-        {/* ── Inline Currency Picker ── */}
-        {pickerMode && (
-          <div style={{ paddingTop: 20 }}>
-            {/* Back header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <button
-                onClick={() => { setPickerMode(null); setSearch(''); }}
-                style={{
-                  width: 32, height: 32, borderRadius: 10,
-                  background: 'var(--surface2)', border: '1px solid var(--border)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)',
-                }}
-              >←</button>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-                Select {pickerMode === 'from' ? 'From' : 'To'} Currency
-              </div>
-            </div>
-            {/* Search */}
-            <div style={{ position: 'relative', marginBottom: 12 }}>
-              <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16 }}>🔍</span>
-              <input
-                autoFocus
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search currency…"
-                style={{
-                  width: '100%', padding: '10px 12px 10px 38px',
-                  borderRadius: 12, border: '1.5px solid var(--border)',
-                  background: 'var(--surface2)', color: 'var(--text-primary)',
-                  fontSize: 14, outline: 'none', fontFamily: 'inherit',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            {/* Currency list */}
-            <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {filteredCurrencies.map(c => {
-                const isActive = (pickerMode === 'from' ? fromCur : toCur) === c.code;
-                return (
-                  <button
-                    key={c.code}
-                    onClick={() => selectCurrency(c.code)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 12, padding: '11px 12px',
-                      borderRadius: 12, border: 'none', cursor: 'pointer', textAlign: 'left',
-                      background: isActive ? 'var(--accent-light)' : 'transparent',
-                      transition: 'background 0.1s',
-                    }}
-                  >
-                    <span style={{ fontSize: 22, flexShrink: 0 }}>{c.flag}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: isActive ? 'var(--accent)' : 'var(--text-primary)' }}>
-                        {c.code}
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{c.name}</div>
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: isActive ? 'var(--accent)' : 'var(--text-tertiary)' }}>
-                      {c.symbol}
-                    </span>
-                    {isActive && (
-                      <span style={{ color: 'var(--accent)', fontSize: 16 }}>✓</span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* ── Main Converter UI ── */}
-        {!pickerMode && (
-          <div style={{ paddingTop: 20 }}>
-            {/* Title row */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 22 }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.4px' }}>
-                  Currency Converter
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
-                  Live exchange rates
-                </div>
-              </div>
-              <button onClick={onClose} style={{
-                width: 32, height: 32, borderRadius: 10,
-                background: 'var(--surface2)', border: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 16,
-              }}>✕</button>
-            </div>
-
-            {loading && (
-              <div style={{
-                textAlign: 'center', padding: '32px 0',
-                color: 'var(--text-tertiary)', fontSize: 14,
-              }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>🔄</div>
-                Fetching live rates…
-              </div>
-            )}
-
-            {error && (
-              <div style={{
-                textAlign: 'center', padding: '20px',
-                background: '#FFF0F0', borderRadius: 14, marginBottom: 16,
-                color: 'var(--danger)', fontSize: 13,
-              }}>
-                {error}
-                <button onClick={fetchRates} style={{
-                  display: 'block', margin: '10px auto 0',
-                  padding: '8px 16px', borderRadius: 10, border: 'none',
-                  background: 'var(--danger)', color: '#fff',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                }}>Retry</button>
-              </div>
-            )}
-
-            {!loading && rates && (
-              <>
-                {/* FROM box */}
-                <div style={{
-                  background: 'var(--surface2)', borderRadius: 16,
-                  padding: '14px 16px', marginBottom: 4,
-                  border: '1.5px solid var(--border)',
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-                    From
-                  </div>
-                  <button
-                    onClick={() => setPickerMode('from')}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                      background: 'var(--surface)', borderRadius: 12, padding: '10px 12px',
-                      border: '1px solid var(--border)', cursor: 'pointer', marginBottom: 12,
-                      transition: 'border-color 0.15s',
-                    }}
-                  >
-                    <span style={{ fontSize: 22 }}>{fromInfo.flag}</span>
-                    <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{fromInfo.code}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{fromInfo.name}</div>
-                    </div>
-                    <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                      <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                  <input
-                    type="number"
-                    min="0"
-                    value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                    placeholder="0.00"
-                    style={{
-                      width: '100%', padding: '12px 14px',
-                      background: 'var(--surface)', borderRadius: 12,
-                      border: '1.5px solid var(--accent)',
-                      color: 'var(--text-primary)', fontSize: 22, fontWeight: 800,
-                      outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
-                      letterSpacing: '-0.5px',
-                    }}
-                  />
-                </div>
-
-                {/* Swap button */}
-                <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0' }}>
-                  <button
-                    onClick={swapCurrencies}
-                    style={{
-                      width: 40, height: 40, borderRadius: '50%',
-                      background: 'var(--accent)', border: 'none',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      cursor: 'pointer', color: '#fff', fontSize: 18,
-                      boxShadow: '0 4px 12px rgba(10,108,255,0.35)',
-                      transition: 'transform 0.2s',
-                    }}
-                    onMouseDown={e => e.currentTarget.style.transform = 'rotate(180deg)'}
-                    onMouseUp={e => e.currentTarget.style.transform = 'rotate(0deg)'}
-                  >⇅</button>
-                </div>
-
-                {/* TO box */}
-                <div style={{
-                  background: 'var(--surface2)', borderRadius: 16,
-                  padding: '14px 16px',
-                  border: '1.5px solid var(--border)',
-                  marginBottom: 20,
-                }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
-                    To
-                  </div>
-                  <button
-                    onClick={() => setPickerMode('to')}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-                      background: 'var(--surface)', borderRadius: 12, padding: '10px 12px',
-                      border: '1px solid var(--border)', cursor: 'pointer', marginBottom: 12,
-                      transition: 'border-color 0.15s',
-                    }}
-                  >
-                    <span style={{ fontSize: 22 }}>{toInfo.flag}</span>
-                    <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{toInfo.code}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{toInfo.name}</div>
-                    </div>
-                    <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                      <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
-                  {/* Result */}
-                  <div style={{
-                    padding: '12px 14px', background: 'var(--surface)', borderRadius: 12,
-                    border: '1.5px solid var(--border)',
-                  }}>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px' }}>
-                      {convertedAmount !== null
-                        ? formatCurrency(convertedAmount, toCur)
-                        : '—'}
-                    </div>
-                    {exchangeRate !== null && (
-                      <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4 }}>
-                        1 {fromCur} = {exchangeRate.toFixed(4)} {toCur}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Footer: last updated + refresh */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 14px', background: 'var(--surface2)', borderRadius: 12,
-                }}>
-                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 14 }}>🟢</span>
-                    Live rate · Updated {timeAgo}
-                  </div>
-                  <button
-                    onClick={fetchRates}
-                    style={{
-                      padding: '6px 12px', borderRadius: 8,
-                      background: 'var(--accent-light)', color: 'var(--accent)',
-                      border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                    }}
-                  >↻ Refresh</button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+import { lightTap, mediumTap, successTap, errorTap, warningTap } from '../utils/haptics';
+import { saveUserData, deleteUserData } from '../utils/firestore';
+import { saveCardSecrets, loadCardSecrets, deleteCardSecrets, hasCardSecrets } from '../utils/cardVault';
+import { HELP_FAQS } from './profile/helpFaqs';
+import RateSheet from './profile/RateSheet';
+import NotifSheet from './profile/NotifSheet';
+import SecuritySheet from './profile/SecuritySheet';
+import CategoriesTagsSheet from './profile/CategoriesTagsSheet';
+import CurrencyConverterSheet from './profile/CurrencyConverterSheet';
+import CardsSheet from './profile/CardsSheet';
 
 /* ─── Profile Screen ────────────────────────────────────────── */
-export default function ProfileScreen({ transactions, currentUser, onLogout, onNavigate, onAddTransaction, onUpdateUser, customCategories = [], customTags = [], onAddCustomCategory, onDeleteCustomCategory, onAddCustomTag, onDeleteCustomTag }) {
+export default function ProfileScreen({ transactions, currentUser, onLogout, onNavigate, onAddTransaction, onUpdateUser, customCategories = [], customTags = [], onAddCustomCategory, onDeleteCustomCategory, onAddCustomTag, onDeleteCustomTag, registerBackHandler, resetKey, onReplayTour }) {
   const { isDark, toggleTheme, currency, setCurrency } = useTheme();
   const [showCurrencyPicker,  setShowCurrencyPicker]  = useState(false);
   const [showConverter,       setShowConverter]        = useState(false);
@@ -974,24 +27,175 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
   const [showCards,           setShowCards]            = useState(false);
   const [showFinances,        setShowFinances]         = useState(false);
   const [showReports,         setShowReports]          = useState(false);
+  const [showSecurity,        setShowSecurity]         = useState(false);
+  const [showHelp,            setShowHelp]             = useState(false);
+  const [showNotifications,   setShowNotifications]    = useState(false);
+  const [showRateApp,         setShowRateApp]          = useState(false);
+  const [showYourData,        setShowYourData]         = useState(false);
+  const [showAccount,         setShowAccount]          = useState(false);
   const [editingProfile,      setEditingProfile]       = useState(false);
   const [editName,            setEditName]             = useState('');
   const [editAvatar,          setEditAvatar]           = useState('');
   const AVATARS = ['🧑‍💼','👩‍💻','👨‍🎨','👩‍🔬','🧑‍🚀','👨‍💻','👩‍🎤','🧑‍🍳','👩‍⚕️','🧑‍🎓','👨‍🔧','👩‍🏫','🧑‍💻','👸','🤴','🦸'];
 
+  function closeAllSheets() {
+    setShowCurrencyPicker(false); setShowConverter(false); setShowCatTags(false);
+    setShowCards(false); setShowFinances(false); setShowReports(false);
+    setShowSecurity(false); setShowHelp(false); setShowNotifications(false);
+    setShowRateApp(false); setShowYourData(false);
+  }
+  function openSheet(setter) { closeAllSheets(); lightTap(); setter(true); }
+
+  // Delete all data modal state
+  const [showDeleteAll, setShowDeleteAll] = useState(false);
+  const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
+
+  async function handleDeleteAllData() {
+    if (!currentUser?.uid) return;
+    errorTap();
+    // Clear all coinova keys from localStorage
+    const keys = Object.keys(localStorage);
+    keys.forEach(key => {
+      if (key.includes('coinova')) localStorage.removeItem(key);
+    });
+    // Clear Firestore document
+    try {
+      const { deleteUserData } = await import('../utils/firestore');
+      await deleteUserData(currentUser.uid);
+    } catch {}
+    setShowDeleteAll(false);
+    onLogout();
+  }
+
+  // Account deletion modal state
+  const [showDeleteAccount, setShowDeleteAccount] = useState(false);
+  const [deleteAccountStep, setDeleteAccountStep] = useState('confirm'); // 'confirm' | 'reauth' | 'deleting'
+  const [deleteAccountPw, setDeleteAccountPw] = useState('');
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [deleteAccountConfirmText, setDeleteAccountConfirmText] = useState('');
+
+  async function handleDeleteAccount() {
+    setDeleteAccountError('');
+    setDeleteAccountStep('deleting');
+    try {
+      const { auth } = await import('../firebase');
+      const user = auth.currentUser;
+      if (!user) {
+        setDeleteAccountError('Not signed in.');
+        setDeleteAccountStep('confirm');
+        return;
+      }
+
+      // Re-authenticate if password was provided (email/password users only).
+      // For Google sign-in users we skip this — Firebase usually has a fresh enough
+      // token from the OAuth flow, and if it doesn't, the auth/requires-recent-login
+      // error below will tell the user to sign out and back in.
+      if (deleteAccountPw && user.email) {
+        const { EmailAuthProvider, reauthenticateWithCredential } = await import('firebase/auth');
+        const credential = EmailAuthProvider.credential(user.email, deleteAccountPw);
+        await reauthenticateWithCredential(user, credential);
+      }
+
+      // 1. Delete the Firestore document
+      try {
+        await deleteUserData(user.uid);
+      } catch (err) {
+        console.warn('[DeleteAccount] Firestore deletion failed:', err);
+        // Continue anyway — we'd rather orphan a Firestore doc than leave a
+        // Firebase Auth account behind that the user can't sign back into.
+      }
+
+      // 2. Wipe all local data for this user
+      try {
+        const keys = Object.keys(localStorage);
+        keys.forEach(key => {
+          if (key.includes('coinova_') || (currentUser?.email && key.includes(currentUser.email))) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch {}
+
+      // 3. Delete the Firebase Auth account itself
+      await user.delete();
+
+      // 4. Sign out and reset app state
+      successTap();
+      onLogout();
+    } catch (err) {
+      if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setDeleteAccountError('Incorrect password.');
+        setDeleteAccountStep('reauth');
+      } else if (err.code === 'auth/requires-recent-login') {
+        setDeleteAccountError('For security, please sign out and sign in again, then try deleting your account.');
+        setDeleteAccountStep('confirm');
+      } else {
+        setDeleteAccountError('Could not delete account. Please try again.');
+        setDeleteAccountStep('confirm');
+      }
+    }
+  }
+
+  // Close all sheets when profile tab is re-tapped
+  useEffect(() => {
+    if (resetKey > 0) {
+      setShowCurrencyPicker(false); setShowConverter(false); setShowCatTags(false);
+      setShowCards(false); setShowFinances(false); setShowReports(false);
+      setShowSecurity(false); setShowHelp(false); setShowNotifications(false);
+      setShowRateApp(false); setShowYourData(false); setEditingProfile(false);
+    }
+  }, [resetKey]);
+
   const [cards, setCards] = useState(() => {
     try {
       if (!currentUser) return [];
-      const saved = localStorage.getItem(`findo_cards_${currentUser.email}`);
+      const saved = localStorage.getItem(`coinova_cards_${currentUser.uid}`);
       return saved ? JSON.parse(saved) : [];
     } catch { return []; }
   });
 
   useEffect(() => {
     if (currentUser) {
-      localStorage.setItem(`findo_cards_${currentUser.email}`, JSON.stringify(cards));
+      localStorage.setItem(`coinova_cards_${currentUser.uid}`, JSON.stringify(cards));
+      saveUserData(currentUser.uid, { cards });
     }
   }, [cards, currentUser]);
+
+  // Re-read cards from localStorage when Firestore sync delivers new data from another device
+  useEffect(() => {
+    function handleSync() {
+      if (!currentUser?.uid) return;
+      try {
+        const saved = localStorage.getItem(`coinova_cards_${currentUser.uid}`);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setCards(prev => JSON.stringify(prev) !== JSON.stringify(parsed) ? parsed : prev);
+        }
+      } catch {}
+    }
+    window.addEventListener('coinova-data-sync', handleSync);
+    return () => window.removeEventListener('coinova-data-sync', handleSync);
+  }, [currentUser?.uid]);
+
+  useEffect(() => {
+    if (!registerBackHandler) return;
+    registerBackHandler(() => {
+      if (showAccount)         { setShowAccount(false); return true; }
+      if (showYourData)        { setShowYourData(false); return true; }
+      if (showRateApp)         { setShowRateApp(false); return true; }
+      if (showHelp)            { setShowHelp(false); return true; }
+      if (showNotifications)   { setShowNotifications(false); return true; }
+      if (showSecurity)        { setShowSecurity(false); return true; }
+      if (showReports)         { setShowReports(false); return true; }
+      if (showFinances)        { setShowFinances(false); return true; }
+      if (showCards)           { setShowCards(false); return true; }
+      if (showCatTags)         { setShowCatTags(false); return true; }
+      if (showConverter)       { setShowConverter(false); return true; }
+      if (showCurrencyPicker)  { setShowCurrencyPicker(false); return true; }
+      if (editingProfile)      { setEditingProfile(false); return true; }
+      return false;
+    });
+    return () => registerBackHandler(null);
+  }, [showCurrencyPicker, showConverter, showCatTags, showCards, showFinances, showReports, showSecurity, showHelp, showNotifications, showRateApp, showYourData, showAccount, editingProfile, registerBackHandler]);
 
   function addCard(card) { setCards(prev => [...prev, card]); }
   function deleteCard(id) { setCards(prev => prev.filter(c => c.id !== id)); }
@@ -1004,7 +208,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
       {/* Header */}
-      <div style={{ padding: '48px 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div className="safe-top" style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Profile</div>
       </div>
 
@@ -1077,20 +281,20 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
             </>
           )}
 
-          <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginTop: 16 }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--success)', letterSpacing: '-0.5px' }}>{formatCurrency(totalIncome, currency)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Total Income</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr auto 1fr', gap: 0, alignItems: 'center', marginTop: 16 }}>
+            <div style={{ textAlign: 'center', overflow: 'hidden', padding: '0 4px' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--success)', letterSpacing: '-0.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrency(totalIncome, currency)}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Income</div>
             </div>
-            <div style={{ width: 1, background: 'var(--border)' }} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--danger)', letterSpacing: '-0.5px' }}>{formatCurrency(totalExpense, currency)}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Total Spent</div>
+            <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
+            <div style={{ textAlign: 'center', overflow: 'hidden', padding: '0 4px' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--danger)', letterSpacing: '-0.5px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{formatCurrency(totalExpense, currency)}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Spent</div>
             </div>
-            <div style={{ width: 1, background: 'var(--border)' }} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px' }}>{transactions.length}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Records</div>
+            <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
+            <div style={{ textAlign: 'center', padding: '0 4px' }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px' }}>{transactions.length}</div>
+              <div style={{ fontSize: 10, color: 'var(--text-tertiary)', fontWeight: 500, marginTop: 2 }}>Records</div>
             </div>
           </div>
         </div>
@@ -1103,19 +307,19 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         <div className="card anim-fadeup" style={{ padding: '0 16px', marginBottom: 16, animationDelay: '0.06s' }}>
 
           {/* My Finances */}
-          <div onClick={() => setShowFinances(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+          <div onClick={() => openSheet(setShowFinances)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>My Finances</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Savings goals, spending & trends</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>AI health score, insights & trends</div>
             </div>
             <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
 
           {/* Reports */}
-          <div onClick={() => setShowReports(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+          <div onClick={() => openSheet(setShowReports)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
             </div>
@@ -1128,20 +332,24 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
 
           {/* Dark Mode Toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: isDark ? 'rgba(61,142,255,0.15)' : 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-              {isDark ? '🌙' : '☀️'}
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: isDark ? 'rgba(61,142,255,0.15)' : 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isDark ? (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3D8EFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              )}
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Appearance</div>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>{isDark ? 'Dark mode' : 'Light mode'}</div>
             </div>
-            <div onClick={toggleTheme} style={{ width: 48, height: 28, borderRadius: 14, cursor: 'pointer', background: isDark ? 'var(--accent)' : 'var(--border)', position: 'relative', transition: 'background 0.25s ease', flexShrink: 0 }}>
+            <div onClick={() => { mediumTap(); toggleTheme(); }} style={{ width: 48, height: 28, borderRadius: 14, cursor: 'pointer', background: isDark ? 'var(--accent)' : 'var(--border)', position: 'relative', transition: 'background 0.25s ease', flexShrink: 0 }}>
               <div style={{ position: 'absolute', top: 3, left: isDark ? 23 : 3, width: 22, height: 22, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.25)', transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)' }} />
             </div>
           </div>
 
           {/* Currency Row */}
-          <div onClick={() => setShowCurrencyPicker(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+          <div onClick={() => { lightTap(); setShowCurrencyPicker(true); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
               {selectedCur.flag}
             </div>
@@ -1159,9 +367,41 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
             </div>
           </div>
 
+          {/* Currency Converter Row */}
+          <div onClick={() => openSheet(setShowConverter)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(6,182,212,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Currency Converter</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Live exchange rates</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#10B981', background: 'rgba(16,185,129,0.1)', padding: '3px 7px', borderRadius: 6 }}>LIVE</span>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+          </div>
+
+          {/* Travel Tracker Row */}
+          <div onClick={() => onNavigate?.('travel')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(16,185,129,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10B981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Travel Tracker</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Track spending per trip & country</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#8B5CF6', background: 'rgba(139,92,246,0.1)', padding: '3px 7px', borderRadius: 6 }}>NEW</span>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+          </div>
+
           {/* Cards Row */}
-          <div onClick={() => setShowCards(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'linear-gradient(135deg, #302B63, #24243e)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>💳</div>
+          <div onClick={() => openSheet(setShowCards)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: isDark ? 'linear-gradient(135deg, #302B63, #24243e)' : 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isDark ? '#a78bfa' : '#6366F1'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="3"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+            </div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Cards</div>
               <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
@@ -1173,167 +413,301 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
             </svg>
           </div>
 
-          {/* Categories & Tags Row */}
-          <div onClick={() => setShowCatTags(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(139,92,246,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-              🏷️
+          {/* Notifications */}
+          <div onClick={() => openSheet(setShowNotifications)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(239,68,68,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Categories & Tags</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>
-                {customCategories.length} custom {customCategories.length === 1 ? 'category' : 'categories'} · {customTags.length} custom {customTags.length === 1 ? 'tag' : 'tags'}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-          </div>
-
-          {/* Currency Converter Row */}
-          <div onClick={() => setShowConverter(true)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(10,108,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-              💱
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Currency Converter</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Live exchange rates</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#10B981', background: 'rgba(16,185,129,0.1)', padding: '3px 7px', borderRadius: 6 }}>
-                LIVE
-              </span>
-              <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-          </div>
-
-          {/* Travel Tracker Row */}
-          <div onClick={() => onNavigate?.('travel')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(67,233,123,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
-              ✈️
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Travel Tracker</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Track spending per trip & country</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#8B5CF6', background: 'rgba(139,92,246,0.1)', padding: '3px 7px', borderRadius: 6 }}>
-                NEW
-              </span>
-              <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-          </div>
-
-          {/* Backup Data */}
-          <div onClick={() => {
-            if (!currentUser) return;
-            const data = {
-              version: 1,
-              exportDate: new Date().toISOString(),
-              user: { name: currentUser.name, email: currentUser.email, avatar: currentUser.avatar },
-              transactions,
-              savingsGoals: JSON.parse(localStorage.getItem(`findo_savings_goals_${currentUser.email}`) || '[]'),
-              customCategories,
-              customTags,
-            };
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `findo-backup-${new Date().toISOString().slice(0, 10)}.json`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(10,108,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Backup Data</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Export all data as JSON file</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Notifications</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Reminders & alerts</div>
             </div>
             <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
 
-          {/* Restore Data */}
-          <div onClick={() => document.getElementById('restore-file-input')?.click()} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+          {/* Security */}
+          <div onClick={() => openSheet(setShowSecurity)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Restore Data</div>
-              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Import from a backup file</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Security</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Password, Face ID, PIN</div>
             </div>
             <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
-          <input id="restore-file-input" type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file || !currentUser) return;
-            const reader = new FileReader();
-            reader.onload = () => {
+
+          {/* Your Data Row */}
+          <div onClick={() => { lightTap(); setShowYourData(true); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h14a2 2 0 002-2V7.5L14.5 2H6a2 2 0 00-2 2v4"/><polyline points="14 2 14 8 20 8"/><path d="M2 15h10"/><path d="M9 18l3-3-3-3"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Your Data</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Categories, tags, backup & restore</div>
+            </div>
+            <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+
+          {/* Help & Support */}
+          <div onClick={() => openSheet(setShowHelp)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Help & Support</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>FAQ & contact</div>
+            </div>
+            <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+
+          {/* Rate Coinova */}
+          <div onClick={() => { lightTap(); setShowRateApp(true); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Rate Coinova</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Love the app? Let us know!</div>
+            </div>
+            <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </div>
+
+          {/* Terms & Privacy */}
+          {[
+            { label: 'Terms of Service', sub: 'Usage terms and conditions', url: 'https://rishadulislam-ad.github.io/savings-app/terms-of-service.html', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> },
+            { label: 'Privacy Policy', sub: 'How your data is handled', url: 'https://rishadulislam-ad.github.io/savings-app/privacy-policy.html', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },
+          ].map((item, i) => (
+            <div key={i} onClick={async () => {
+              lightTap();
               try {
-                if (file.size > 5 * 1024 * 1024) { alert('Backup file too large (max 5MB)'); return; }
-                const data = JSON.parse(reader.result);
-                // Schema validation
-                if (!data.version || typeof data.version !== 'number') { alert('Invalid backup file format'); return; }
-                if (!Array.isArray(data.transactions)) { alert('Invalid backup: transactions must be an array'); return; }
-                if (data.transactions.length > 50000) { alert('Backup contains too many transactions (max 50,000)'); return; }
-                // Validate each transaction has required fields
-                const validTx = data.transactions.filter(t =>
-                  t && typeof t === 'object' &&
-                  typeof t.amount === 'number' && isFinite(t.amount) && t.amount >= 0 && t.amount <= 999999.99 &&
-                  ['income', 'expense'].includes(t.type) &&
-                  typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) &&
-                  typeof t.category === 'string' && t.category.length <= 100
-                );
-                if (validTx.length === 0 && data.transactions.length > 0) { alert('No valid transactions found in backup'); return; }
-                // Validate optional arrays
-                const validCats = Array.isArray(data.customCategories) ? data.customCategories.filter(c => c && typeof c.id === 'string' && typeof c.label === 'string' && c.label.length <= 50).slice(0, 100) : [];
-                const validTags = Array.isArray(data.customTags) ? data.customTags.filter(t => typeof t === 'string' && t.length <= 50).slice(0, 200) : [];
-                const validGoals = Array.isArray(data.savingsGoals) ? data.savingsGoals.filter(g => g && typeof g.label === 'string' && typeof g.target === 'number').slice(0, 50) : [];
-
-                if (!confirm(`Restore ${validTx.length} transactions from ${data.exportDate?.slice(0, 10) || 'backup'}? This will replace your current data.`)) return;
-                localStorage.setItem(`findo_transactions_${currentUser.email}`, JSON.stringify(validTx));
-                if (validGoals.length > 0) localStorage.setItem(`findo_savings_goals_${currentUser.email}`, JSON.stringify(validGoals));
-                if (validCats.length > 0) localStorage.setItem(`findo_user_cats_${currentUser.email}`, JSON.stringify(validCats));
-                if (validTags.length > 0) localStorage.setItem(`findo_user_tags_${currentUser.email}`, JSON.stringify(validTags));
-                // Don't restore user data from backup file (security risk)
-                window.location.reload();
-              } catch { alert('Failed to read backup file'); }
-            };
-            reader.readAsText(file);
-            e.target.value = '';
-          }} />
-
-          {/* Other Settings */}
-          {OTHER_SETTINGS.map((s, i) => (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: i < OTHER_SETTINGS.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}>
-              <div style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-                {s.icon}
-              </div>
+                const { Browser } = await import('@capacitor/browser');
+                await Browser.open({ url: item.url });
+              } catch {
+                window.open(item.url, '_blank', 'noopener,noreferrer');
+              }
+            }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', cursor: 'pointer', borderBottom: i === 0 ? '1px solid var(--border)' : 'none' }}>
+              <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(107,114,128,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{item.icon}</div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{s.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>{s.sub}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>{item.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>{item.sub}</div>
               </div>
-              <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
-                <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
           ))}
         </div>
 
         {/* Sign Out */}
-        <button onClick={onLogout} style={{ width: '100%', padding: '14px', background: isDark ? 'rgba(255,90,90,0.1)' : '#FFF0F0', border: `1.5px solid ${isDark ? 'rgba(255,90,90,0.25)' : '#FECACA'}`, borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
+        <button onClick={() => { warningTap(); onLogout(); }} style={{ width: '100%', padding: '14px', background: isDark ? 'rgba(255,90,90,0.1)' : '#FFF0F0', border: `1.5px solid ${isDark ? 'rgba(255,90,90,0.25)' : '#FECACA'}`, borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontWeight: 700, fontSize: 15, cursor: 'pointer' }}>
           Sign Out
         </button>
+
+        {/* Delete All Data */}
+        <button onClick={() => { warningTap(); setShowDeleteAll(true); setDeleteAllConfirm(''); }} style={{ width: '100%', padding: '14px', marginTop: 10, background: 'transparent', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', color: 'var(--text-tertiary)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          Delete All Data & Reset
+        </button>
+
+        {/* Delete Account — permanently removes Firebase auth account + cloud data */}
+        <button onClick={() => {
+          warningTap();
+          setDeleteAccountStep('confirm');
+          setDeleteAccountConfirmText('');
+          setDeleteAccountPw('');
+          setDeleteAccountError('');
+          setShowDeleteAccount(true);
+        }} style={{ width: '100%', padding: '14px', marginTop: 10, background: 'transparent', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 'var(--radius-md)', color: 'var(--danger)', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+          Delete My Account
+        </button>
+
         <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--text-tertiary)' }}>
-          Findo v1.0.0 · Made with ❤️
+          Coinova v1.1 · Made with ❤️
         </div>
       </div>
+
+      {/* Delete All Data Modal */}
+      {showDeleteAll && (
+        <div onClick={() => setShowDeleteAll(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+          zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%', maxWidth: 360, padding: 24, borderRadius: 24,
+            background: 'var(--surface)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+          }}>
+            <div style={{ textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>⚠️</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Delete All Data</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                This will permanently delete all your transactions, budgets, cards, savings goals, and settings from this device and the cloud. You will be signed out.
+              </div>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, fontWeight: 600 }}>Type DELETE to confirm:</div>
+            <input
+              type="text" value={deleteAllConfirm} autoFocus
+              onChange={e => setDeleteAllConfirm(e.target.value)}
+              placeholder="DELETE"
+              style={{
+                width: '100%', padding: '12px 14px', borderRadius: 12,
+                background: 'var(--surface2)', border: '1.5px solid var(--border)',
+                color: 'var(--text-primary)', fontSize: 15, fontWeight: 700,
+                textAlign: 'center', letterSpacing: 2, outline: 'none', boxSizing: 'border-box',
+                marginBottom: 16,
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => setShowDeleteAll(false)} style={{
+                flex: 1, padding: 14, borderRadius: 14,
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}>Cancel</button>
+              <button
+                onClick={() => deleteAllConfirm === 'DELETE' && handleDeleteAllData()}
+                disabled={deleteAllConfirm !== 'DELETE'}
+                style={{
+                  flex: 1, padding: 14, borderRadius: 14, border: 'none',
+                  background: deleteAllConfirm === 'DELETE' ? 'var(--danger)' : 'var(--surface2)',
+                  color: deleteAllConfirm === 'DELETE' ? '#fff' : 'var(--text-tertiary)',
+                  fontSize: 14, fontWeight: 700,
+                  cursor: deleteAllConfirm === 'DELETE' ? 'pointer' : 'not-allowed',
+                }}>Delete Everything</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Account Modal */}
+      {showDeleteAccount && (
+        <div onClick={() => deleteAccountStep !== 'deleting' && setShowDeleteAccount(false)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
+          zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          animation: 'fadeIn 0.2s ease both',
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: 'calc(100% - 48px)', maxWidth: 360, background: 'var(--surface)',
+            borderRadius: 24, padding: '28px 24px',
+            boxShadow: '0 16px 48px rgba(0,0,0,0.3)',
+          }}>
+            {deleteAccountStep === 'confirm' && (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 16, background: 'rgba(239,68,68,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', fontSize: 28 }}>⚠️</div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Delete Your Account?</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.6 }}>
+                    This permanently deletes your account, all your transactions, budgets, cards, savings goals, and settings. This <strong>cannot</strong> be undone.
+                  </div>
+                </div>
+                {deleteAccountError && (
+                  <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    {deleteAccountError}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                  Type <span style={{ color: 'var(--danger)' }}>DELETE</span> to confirm
+                </div>
+                <input
+                  type="text"
+                  value={deleteAccountConfirmText}
+                  onChange={e => setDeleteAccountConfirmText(e.target.value)}
+                  placeholder="DELETE"
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '12px 14px', borderRadius: 12,
+                    background: 'var(--surface2)', border: '1.5px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: 14, outline: 'none',
+                    boxSizing: 'border-box', marginBottom: 18,
+                    fontWeight: 700, letterSpacing: '0.1em',
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setShowDeleteAccount(false)} style={{
+                    flex: 1, padding: 14, borderRadius: 14,
+                    background: 'var(--surface2)', border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  }}>Cancel</button>
+                  <button
+                    onClick={() => {
+                      if (deleteAccountConfirmText !== 'DELETE') return;
+                      // For email/password users, ask for password. For social users, skip to deletion.
+                      if (currentUser?.provider) {
+                        handleDeleteAccount();
+                      } else {
+                        setDeleteAccountStep('reauth');
+                      }
+                    }}
+                    disabled={deleteAccountConfirmText !== 'DELETE'}
+                    style={{
+                      flex: 1, padding: 14, borderRadius: 14, border: 'none',
+                      background: deleteAccountConfirmText === 'DELETE' ? 'var(--danger)' : 'var(--surface2)',
+                      color: deleteAccountConfirmText === 'DELETE' ? '#fff' : 'var(--text-tertiary)',
+                      fontSize: 14, fontWeight: 700,
+                      cursor: deleteAccountConfirmText === 'DELETE' ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.15s',
+                    }}
+                  >Continue</button>
+                </div>
+              </>
+            )}
+
+            {deleteAccountStep === 'reauth' && (
+              <>
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                  <div style={{ fontSize: 36, marginBottom: 10 }}>🔐</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 6 }}>Confirm with Password</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+                    Enter your password to permanently delete your account.
+                  </div>
+                </div>
+                {deleteAccountError && (
+                  <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 600, background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    {deleteAccountError}
+                  </div>
+                )}
+                <input
+                  type="password"
+                  value={deleteAccountPw}
+                  onChange={e => { setDeleteAccountPw(e.target.value); setDeleteAccountError(''); }}
+                  onKeyDown={e => e.key === 'Enter' && deleteAccountPw && handleDeleteAccount()}
+                  placeholder="Your password"
+                  autoFocus
+                  style={{
+                    width: '100%', padding: '12px 14px', borderRadius: 12,
+                    background: 'var(--surface2)', border: '1.5px solid var(--border)',
+                    color: 'var(--text-primary)', fontSize: 14, outline: 'none',
+                    boxSizing: 'border-box', marginBottom: 18,
+                  }}
+                />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setShowDeleteAccount(false)} style={{
+                    flex: 1, padding: 14, borderRadius: 14,
+                    background: 'var(--surface2)', border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  }}>Cancel</button>
+                  <button
+                    onClick={handleDeleteAccount}
+                    disabled={!deleteAccountPw}
+                    style={{
+                      flex: 1, padding: 14, borderRadius: 14, border: 'none',
+                      background: deleteAccountPw ? 'var(--danger)' : 'var(--surface2)',
+                      color: deleteAccountPw ? '#fff' : 'var(--text-tertiary)',
+                      fontSize: 14, fontWeight: 700,
+                      cursor: deleteAccountPw ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.15s',
+                    }}
+                  >Delete Account</button>
+                </div>
+              </>
+            )}
+
+            {deleteAccountStep === 'deleting' && (
+              <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Deleting your account…</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Removing all data and signing you out.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Cards Sheet */}
       {showCards && (
@@ -1343,6 +717,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
           onAddCard={addCard}
           onDeleteCard={deleteCard}
           currentUser={currentUser}
+          onOpenSecurity={() => { setShowCards(false); setTimeout(() => setShowSecurity(true), 300); }}
         />
       )}
 
@@ -1356,6 +731,8 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         <CurrencyConverterSheet
           onClose={() => setShowConverter(false)}
           defaultCurrency={currency}
+          onAddTransaction={onAddTransaction}
+          currentUser={currentUser}
         />
       )}
 
@@ -1378,7 +755,6 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
           onClose={() => setShowFinances(false)}
           transactions={transactions}
           currentUser={currentUser}
-          isDark={isDark}
           currency={currency}
           onAddTransaction={onAddTransaction}
         />
@@ -1391,6 +767,250 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
           transactions={transactions}
           currency={currency}
         />
+      )}
+
+      {/* Security Sheet */}
+      {showSecurity && (
+        <SecuritySheet currentUser={currentUser} onClose={() => setShowSecurity(false)} hasCards={cards.length > 0} />
+      )}
+
+      {/* Help & Support Sheet */}
+      {showHelp && (
+        <div className="sheet-slide-in" style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+          <div className="safe-top" style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>Help & Support</div>
+            <div onClick={() => setShowHelp(false)} style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--surface2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round"/></svg>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+            {/* Replay Tour */}
+            {onReplayTour && (
+              <div onClick={() => { lightTap(); setShowHelp(false); onReplayTour(); }} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px',
+                background: 'rgba(79,110,247,0.08)', border: '1.5px solid rgba(79,110,247,0.15)',
+                borderRadius: 14, marginBottom: 18, cursor: 'pointer',
+              }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(79,110,247,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🎯</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)' }}>Replay App Tour</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>See the walkthrough again</div>
+                </div>
+                <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--accent)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              </div>
+            )}
+
+            {/* Feature Guide */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              Feature Guide
+            </div>
+            <div className="card" style={{ padding: '0 16px', marginBottom: 20 }}>
+              {[
+                { icon: '🏠', title: 'Home Dashboard', desc: 'Balance overview, spending breakdown, insights, and heatmap', color: '#0A6CFF' },
+                { icon: '📋', title: 'Transactions', desc: 'Search, filter, export CSV, edit, and delete entries', color: '#10B981' },
+                { icon: '📊', title: 'Monthly Budgets', desc: 'Per-month category limits with ← → navigation', color: '#F59E0B' },
+                { icon: '🎯', title: 'Savings Goals', desc: 'Targets, deadlines, deposits, milestones, and archive', color: '#8B5CF6' },
+                { icon: '🧠', title: 'AI Financial Health', desc: 'Health score, AI insights, spending predictions', color: '#06B6D4' },
+                { icon: '💳', title: 'Secure Wallet', desc: 'AES-256 encrypted cards with Face ID / PIN protection', color: '#EC4899' },
+                { icon: '✈️', title: 'Travel Tracker', desc: 'Trip books with local currency budgets and expenses', color: '#3B82F6' },
+                { icon: '💱', title: 'Currency Converter', desc: 'Live rates for 150+ currencies with offline caching', color: '#F97316' },
+                { icon: '🔐', title: 'App Security', desc: 'Face ID, Touch ID, PIN lock, exponential lockout', color: '#EF4444' },
+                { icon: '☁️', title: 'Cloud Sync', desc: 'Real-time sync across all your devices via Firebase', color: '#14B8A6' },
+              ].map((f, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: i < 9 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: `${f.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{f.icon}</div>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{f.title}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>{f.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* FAQ */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              Frequently Asked Questions
+            </div>
+            <div className="card" style={{ padding: '0 16px', marginBottom: 20 }}>
+              {HELP_FAQS.map((faq, i) => (
+                <details key={i} style={{ borderBottom: i < HELP_FAQS.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <summary style={{ padding: '14px 0', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    {faq.q}
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0, marginLeft: 8 }}>
+                      <path d="M2 3.5L5 6.5L8 3.5" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  </summary>
+                  <div style={{ padding: '0 0 14px', fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    {faq.a}
+                  </div>
+                </details>
+              ))}
+            </div>
+
+            {/* Contact */}
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+              Contact Us
+            </div>
+            <div className="card" style={{ padding: 16 }}>
+              <a href="mailto:hello@advergemedia.com" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', textDecoration: 'none', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(10,108,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>Email Support</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>hello@advergemedia.com</div>
+                </div>
+              </a>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(16,185,129,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>App Version</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>Coinova v1.1</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notifications Sheet */}
+      {showNotifications && (
+        <NotifSheet currentUser={currentUser} isDark={isDark} onClose={() => setShowNotifications(false)} />
+      )}
+
+      {/* Your Data Sheet */}
+      {showYourData && (
+        <div className="sheet-slide-in" style={{ position: 'fixed', inset: 0, zIndex: 999, background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+          <div className="safe-top" style={{ padding: '0 20px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary)' }}>Your Data</div>
+            <button onClick={() => setShowYourData(false)} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 14 }}>✕</button>
+          </div>
+          <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+            {/* Categories & Tags */}
+            <div onClick={() => { lightTap(); setShowYourData(false); setTimeout(() => setShowCatTags(true), 100); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, marginBottom: 10, cursor: 'pointer' }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(236,72,153,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EC4899" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Categories & Tags</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+                  {customCategories.length} custom {customCategories.length === 1 ? 'category' : 'categories'} · {customTags.length} custom {customTags.length === 1 ? 'tag' : 'tags'}
+                </div>
+              </div>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+
+            {/* Backup Data */}
+            <div onClick={async () => {
+              lightTap();
+              if (!currentUser) return;
+              const uid = currentUser.uid;
+              const data = {
+                version: 2,
+                exportDate: new Date().toISOString(),
+                user: { name: currentUser.name, email: currentUser.email, avatar: currentUser.avatar },
+                transactions,
+                savingsGoals: JSON.parse(localStorage.getItem(`coinova_savings_goals_${uid}`) || '[]'),
+                cards: JSON.parse(localStorage.getItem(`coinova_cards_${uid}`) || '[]'),
+                budgets: JSON.parse(localStorage.getItem(`coinova_budgets_${uid}`) || '{}'),
+                trips: JSON.parse(localStorage.getItem(`coinova_trips_${uid}`) || '[]'),
+                currency: localStorage.getItem(`coinova-currency-${uid}`) || 'USD',
+                customCategories,
+                customTags,
+              };
+              const jsonStr = JSON.stringify(data, null, 2);
+              const fileName = `coinova-backup-${new Date().toISOString().slice(0, 10)}.json`;
+              try {
+                const result = await Filesystem.writeFile({
+                  path: fileName,
+                  data: btoa(new TextEncoder().encode(jsonStr).reduce((s, b) => s + String.fromCharCode(b), '')),
+                  directory: Directory.Cache,
+                });
+                await Share.share({ title: 'Coinova Backup', url: result.uri });
+                successTap();
+              } catch {
+                const blob = new Blob([jsonStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url; a.download = fileName; a.click();
+                URL.revokeObjectURL(url);
+                successTap();
+              }
+            }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, marginBottom: 10, cursor: 'pointer' }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(10,108,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Backup Data</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Export all data as JSON file</div>
+              </div>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+
+            {/* Restore Data */}
+            <div onClick={() => { lightTap(); document.getElementById('restore-file-input-yd')?.click(); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, cursor: 'pointer' }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>Restore Data</div>
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>Import from a backup file</div>
+              </div>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            </div>
+            <input id="restore-file-input-yd" type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file || !currentUser) return;
+              if (file.size > 5 * 1024 * 1024) { alert('Backup file too large (max 5MB)'); e.target.value = ''; return; }
+              const reader = new FileReader();
+              reader.onload = () => {
+                try {
+                  const data = JSON.parse(reader.result);
+                  if (!data.version || typeof data.version !== 'number') { alert('Invalid backup file format'); return; }
+                  if (!Array.isArray(data.transactions)) { alert('Invalid backup: transactions must be an array'); return; }
+                  if (data.transactions.length > 50000) { alert('Backup contains too many transactions (max 50,000)'); return; }
+                  const validTx = data.transactions.filter(t =>
+                    t && typeof t === 'object' &&
+                    typeof t.amount === 'number' && isFinite(t.amount) && t.amount >= 0 &&
+                    ['income', 'expense'].includes(t.type) &&
+                    typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) &&
+                    typeof t.category === 'string' && t.category.length <= 100
+                  );
+                  if (validTx.length === 0 && data.transactions.length > 0) { alert('No valid transactions found in backup'); return; }
+                  const validCats = Array.isArray(data.customCategories) ? data.customCategories.filter(c => c && typeof c.id === 'string' && typeof c.label === 'string' && c.label.length <= 50).slice(0, 100) : [];
+                  const validTags = Array.isArray(data.customTags) ? data.customTags.filter(t => typeof t === 'string' && t.length <= 50).slice(0, 200) : [];
+                  const validGoals = Array.isArray(data.savingsGoals) ? data.savingsGoals.filter(g => g && typeof g.label === 'string' && typeof g.target === 'number').slice(0, 50) : [];
+                  const validCards = Array.isArray(data.cards) ? data.cards.filter(c => c && typeof c.id === 'string' && typeof c.last4 === 'string').slice(0, 50) : [];
+                  const validTrips = Array.isArray(data.trips) ? data.trips.filter(t => t && typeof t.id === 'string' && typeof t.name === 'string').slice(0, 50) : [];
+                  const validBudgets = (data.budgets && typeof data.budgets === 'object' && !Array.isArray(data.budgets)) ? data.budgets : {};
+                  const validCurrency = (typeof data.currency === 'string' && data.currency.length === 3) ? data.currency : null;
+
+                  if (!confirm(`Restore from ${data.exportDate?.slice(0, 10) || 'backup'}?\n\n${validTx.length} transactions, ${validGoals.length} goals, ${validCards.length} cards, ${validTrips.length} trips\n\nThis will replace ALL your current data.`)) return;
+
+                  const uid = currentUser.uid;
+                  localStorage.setItem(`coinova_transactions_${uid}`, JSON.stringify(validTx));
+                  localStorage.setItem(`coinova_savings_goals_${uid}`, JSON.stringify(validGoals));
+                  localStorage.setItem(`coinova_user_cats_${uid}`, JSON.stringify(validCats));
+                  localStorage.setItem(`coinova_user_tags_${uid}`, JSON.stringify(validTags));
+                  localStorage.setItem(`coinova_cards_${uid}`, JSON.stringify(validCards));
+                  localStorage.setItem(`coinova_budgets_${uid}`, JSON.stringify(validBudgets));
+                  localStorage.setItem(`coinova_trips_${uid}`, JSON.stringify(validTrips));
+                  if (validCurrency) localStorage.setItem(`coinova-currency-${uid}`, validCurrency);
+                  window.location.reload();
+                } catch { alert('Failed to read backup file'); }
+              };
+              reader.readAsText(file);
+              e.target.value = '';
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Rate App Sheet */}
+      {showRateApp && (
+        <RateSheet currentUser={currentUser} onClose={() => setShowRateApp(false)} />
       )}
     </div>
   );

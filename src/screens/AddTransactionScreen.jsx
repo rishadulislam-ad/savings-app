@@ -1,5 +1,9 @@
 import { useState } from 'react';
-import { CATEGORIES, WALLETS } from '../data/transactions';
+import { CATEGORIES, CURRENCIES, WALLETS } from '../data/transactions';
+import { useTheme } from '../context/ThemeContext';
+import { lightTap, successTap, errorTap } from '../utils/haptics';
+import { sanitize } from '../utils/sanitize';
+import { uuid } from '../utils/storage';
 
 const DEFAULT_TAGS = ['Food', 'Work', 'Family', 'Health', 'Fun', 'Travel', 'Bills', 'Gifts'];
 
@@ -40,6 +44,8 @@ function suggestCategory(text) {
 }
 
 export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx, customCategories = [], customTags = [], onAddCustomCategory, onAddCustomTag }) {
+  const { currency } = useTheme();
+  const currencySymbol = (CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol;
   const isEditing = !!initialTx;
   const [type, setType] = useState(initialTx?.type || 'expense');
   const [amount, setAmount] = useState(initialTx ? String(initialTx.amount) : '');
@@ -51,7 +57,6 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
   const [isRecurring, setIsRecurring] = useState(initialTx?.recurring || false);
   const [recurFreq, setRecurFreq] = useState(initialTx?.recurFreq || 'monthly');
-  const [receipt, setReceipt] = useState(initialTx?.receipt || null);
 
   // Custom category sheet state
   const [showAddCat, setShowAddCat]     = useState(false);
@@ -77,24 +82,6 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   // Merged tags: default + custom
   const allTags = [...DEFAULT_TAGS, ...customTags];
 
-  function handleReceiptUpload(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return; // 2MB limit
-    // Validate actual MIME type (not just extension)
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-    if (!allowedTypes.includes(file.type)) return; // Block SVG (XSS risk) and non-images
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      // Verify it's actually a data URL for an image
-      if (typeof result === 'string' && result.startsWith('data:image/')) {
-        setReceipt(result);
-      }
-    };
-    reader.readAsDataURL(file);
-  }
-
   function toggleTag(t) {
     setTags(prev => prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]);
   }
@@ -104,38 +91,37 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
     const parts = val.split('.');
     if (parts.length > 2) return;
     if (parts[1] && parts[1].length > 2) return;
-    if (parseFloat(val) > 999999.99) return; // Max amount limit
+    if (parseFloat(val) > 9999999999.99) return; // Max amount limit
     setAmount(val);
   }
 
   function handleSave() {
+    successTap();
     if (!amount || parseFloat(amount) <= 0) return;
     const tx = {
       type,
       amount: parseFloat(amount),
-      title: title || allCategories[category]?.label || 'Transaction',
+      title: sanitize(title) || allCategories[category]?.label || 'Transaction',
       category,
       wallet,
-      tags,
-      note,
+      tags: tags.map(t => sanitize(t)),
+      note: sanitize(note),
       date,
     };
     if (isRecurring) {
       tx.recurring = true;
       tx.recurFreq = recurFreq;
     }
-    if (receipt) {
-      tx.receipt = receipt;
-    }
     onSave(tx);
     onClose();
   }
 
   function handleAddCategory() {
-    if (!newCatName.trim() || newCatName.trim().length > 30) return;
+    const catName = sanitize(newCatName);
+    if (!catName || catName.length > 30) return;
     const newCat = {
-      id: `custom_${crypto.randomUUID()}`,
-      label: newCatName.trim(),
+      id: `custom_${uuid()}`,
+      label: catName,
       icon: newCatEmoji,
       color: newCatColor,
       bg: `${newCatColor}22`,
@@ -149,7 +135,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   }
 
   function handleAddCustomTag() {
-    const tag = customTagInput.trim().slice(0, 30); // Max 30 chars
+    const tag = sanitize(customTagInput).slice(0, 30);
     if (!tag) return;
     setTags(prev => prev.includes(tag) ? prev : [...prev, tag]);
     onAddCustomTag?.(tag);
@@ -160,12 +146,12 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
       {/* Header */}
-      <div style={{
-        padding: '48px 20px 0', background: 'var(--surface)',
+      <div className="safe-top" style={{
+        padding: '0 20px 0', background: 'var(--surface)',
         borderBottom: '1px solid var(--border)', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 56 }}>
-          <button onClick={onClose} aria-label="Close" style={{
+          <button onClick={() => { lightTap(); onClose(); }} aria-label="Close" style={{
             background: 'var(--surface2)', border: 'none', width: 36, height: 36,
             borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
@@ -175,7 +161,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           </button>
           <span style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>{isEditing ? 'Edit Transaction' : 'Add Transaction'}</span>
           {isEditing ? (
-            <button onClick={() => onDelete(initialTx.id)} style={{
+            <button onClick={() => { errorTap(); onDelete(initialTx.id); }} style={{
               background: '#FF4444', border: 'none', padding: '8px 16px',
               borderRadius: 12, cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#fff',
             }}>
@@ -198,13 +184,13 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           <div className="type-toggle">
             <button
               className={`type-toggle-btn ${type === 'expense' ? 'active-expense' : ''}`}
-              onClick={() => { setType('expense'); setCategory('eating_out'); }}
+              onClick={() => { lightTap(); setType('expense'); setCategory('eating_out'); }}
             >
               Expense
             </button>
             <button
               className={`type-toggle-btn ${type === 'income' ? 'active-income' : ''}`}
-              onClick={() => { setType('income'); setCategory('salary'); }}
+              onClick={() => { lightTap(); setType('income'); setCategory('salary'); }}
             >
               Income
             </button>
@@ -228,11 +214,11 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
             }}>
               {amount ? (
                 <>
-                  <span style={{ color: type === 'expense' ? '#FCA5A5' : '#6EE7B7' }}>$</span>
+                  <span style={{ color: type === 'expense' ? '#FCA5A5' : '#6EE7B7' }}>{currencySymbol}</span>
                   {parseFloat(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </>
               ) : (
-                <span style={{ color: 'var(--border)' }}>$0.00</span>
+                <span style={{ color: 'var(--border)' }}>{currencySymbol}0.00</span>
               )}
             </div>
             <input
@@ -298,7 +284,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
                 <button
                   key={catKey}
                   className={`category-btn ${isActive ? 'active' : ''}`}
-                  onClick={() => setCategory(catKey)}
+                  onClick={() => { lightTap(); setCategory(catKey); }}
                 >
                   <div className="category-icon-wrap" style={{
                     background: isActive ? (c.bg || `${c.color}22`) : 'var(--surface2)',
@@ -336,19 +322,33 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
         {/* Date */}
         <div className="form-group">
           <label className="form-label">Date</label>
-          <input
-            className="form-input"
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-          />
+          <div style={{ position: 'relative', overflow: 'hidden', borderRadius: 'var(--radius-md)' }}>
+            <div style={{
+              padding: '14px 16px', background: 'var(--surface2)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 15, fontWeight: 500, color: 'var(--text-primary)',
+              textAlign: 'center',
+            }}>
+              {new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+            </div>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                opacity: 0, cursor: 'pointer', fontSize: 16,
+                margin: 0, padding: 0, border: 'none',
+              }}
+            />
+          </div>
         </div>
 
         {/* Recurring Toggle */}
         <div className="form-group">
           <label className="form-label">Recurring</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div onClick={() => setIsRecurring(!isRecurring)} style={{
+            <div onClick={() => { lightTap(); setIsRecurring(!isRecurring); }} style={{
               width: 48, height: 28, borderRadius: 14, cursor: 'pointer',
               background: isRecurring ? 'var(--accent)' : 'var(--border)',
               position: 'relative', transition: 'background 0.25s ease', flexShrink: 0,
@@ -483,70 +483,8 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           />
         </div>
 
-        {/* Receipt */}
-        <div className="form-group">
-          <label className="form-label">Receipt</label>
-          <input
-            type="file"
-            accept="image/*"
-            id="receipt-upload"
-            style={{ display: 'none' }}
-            onChange={handleReceiptUpload}
-          />
-          {receipt ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <img
-                src={receipt}
-                alt="Receipt"
-                style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: 12,
-                  objectFit: 'cover',
-                  border: '1.5px solid var(--border)',
-                }}
-              />
-              <button
-                onClick={() => setReceipt(null)}
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: '50%',
-                  border: 'none',
-                  background: 'var(--surface2)',
-                  color: 'var(--text-tertiary)',
-                  fontSize: 14,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                ✕
-              </button>
-            </div>
-          ) : (
-            <label
-              htmlFor="receipt-upload"
-              style={{
-                display: 'block',
-                border: '1.5px dashed var(--border)',
-                borderRadius: 12,
-                padding: '14px',
-                textAlign: 'center',
-                cursor: 'pointer',
-                color: 'var(--text-tertiary)',
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
-              {'📷 Attach Receipt'}
-            </label>
-          )}
-        </div>
-
         {/* Save Button */}
-        <button className="btn-primary" onClick={handleSave} aria-label={isEditing ? 'Save changes' : 'Save transaction'}>
+        <button className="btn-primary" onClick={handleSave} disabled={!amount || parseFloat(amount) <= 0} style={{ opacity: (!amount || parseFloat(amount) <= 0) ? 0.5 : 1 }} aria-label={isEditing ? 'Save changes' : 'Save transaction'}>
           {isEditing ? 'Save Changes' : (type === 'expense' ? '− Add Expense' : '+ Add Income')}
         </button>
       </div>

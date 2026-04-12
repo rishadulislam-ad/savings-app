@@ -1,3 +1,5 @@
+import { lightTap } from '../utils/haptics';
+
 export default function BottomNav({ activeTab, onTabChange, onAdd, onQuickAdd }) {
   const tabs = [
     { id: 'home', label: 'Home', icon: HomeIcon },
@@ -8,18 +10,18 @@ export default function BottomNav({ activeTab, onTabChange, onAdd, onQuickAdd })
   ];
 
   return (
-    <div className="bottom-nav" role="navigation" aria-label="Main navigation">
+    <div className="bottom-nav" data-tour="bottom-nav" role="navigation" aria-label="Main navigation">
       {tabs.map(tab => {
         if (tab.id === 'add') {
           return (
             <div key="add" className="fab-container">
-              <button className="fab" onClick={onAdd} onDoubleClick={(e) => { e.preventDefault(); onQuickAdd?.(); }} aria-label="Add transaction">
+              <button className="fab" data-tour="fab-button" onClick={() => { lightTap(); onAdd(); }} onDoubleClick={(e) => { e.preventDefault(); lightTap(); onQuickAdd?.(); }} aria-label="Add transaction">
                 <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
                   <path d="M11 4V18M4 11H18" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
                 </svg>
               </button>
               {onQuickAdd && (
-                <div onClick={onQuickAdd} style={{
+                <div data-tour="quick-add" role="button" aria-label="Quick add transaction" onClick={() => { lightTap(); onQuickAdd(); }} style={{
                   position: 'absolute', top: -10, right: -10, width: 30, height: 30, borderRadius: '50%',
                   background: 'linear-gradient(135deg, #10B981, #059669)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -38,9 +40,10 @@ export default function BottomNav({ activeTab, onTabChange, onAdd, onQuickAdd })
           <button
             key={tab.id}
             className={`nav-item ${isActive ? 'active' : ''}`}
-            onClick={() => onTabChange(tab.id)}
+            onClick={() => { lightTap(); onTabChange(tab.id); }}
             aria-label={tab.label}
             aria-current={isActive ? 'page' : undefined}
+            {...(tab.id === 'profile' ? { 'data-tour': 'profile-tab' } : {})}
           >
             <div className="nav-icon">
               <Icon active={isActive} />

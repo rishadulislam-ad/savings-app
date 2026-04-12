@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import DonutChart from '../components/DonutChart';
 import TransactionItem from '../components/TransactionItem';
-import { CATEGORIES, formatCurrency, groupByCategory } from '../data/transactions';
+import { CATEGORIES, CURRENCIES, formatCurrency, groupByCategory } from '../data/transactions';
 import { useTheme } from '../context/ThemeContext';
+import { lightTap } from '../utils/haptics';
+import AnimatedNumber from '../components/AnimatedNumber';
 
 const DATE_PERIODS = [
   { id: 'today', label: 'Today' },
@@ -16,17 +18,24 @@ const VIEW_MODES = ['All', 'Expense', 'Income'];
 
 function filterByPeriod(transactions, period) {
   const now = new Date();
-  const today = now.toISOString().slice(0, 10);
+  const localStr = d => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const today = localStr(now);
+
   if (period === 'today') return transactions.filter(t => t.date === today);
   if (period === 'week') {
     const day = now.getDay();
     const mon = new Date(now);
     mon.setDate(now.getDate() - ((day + 6) % 7));
-    const monStr = mon.toISOString().slice(0, 10);
+    const monStr = localStr(mon);
     return transactions.filter(t => t.date >= monStr && t.date <= today);
   }
   if (period === 'month') {
-    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const firstDay = localStr(new Date(now.getFullYear(), now.getMonth(), 1));
     return transactions.filter(t => t.date >= firstDay && t.date <= today);
   }
   return transactions;
@@ -71,12 +80,6 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
 
   const breakdownData = viewMode === 'Income' ? incomeByCategory : expenseByCategory;
   const breakdownTotal = viewMode === 'Income' ? totalIncome : totalExpense;
-  const breakdownLabel = viewMode === 'Income' ? 'income' : 'spent';
-
-  const donutData = breakdownData.slice(0, 4).map(c => ({
-    value: c.total, color: c.color, label: c.label,
-  }));
-
   const recent = useMemo(() => {
     let list = [...filtered].sort((a, b) => new Date(b.date) - new Date(a.date));
     if (viewMode === 'Expense') list = list.filter(t => t.type === 'expense');
@@ -96,7 +99,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   };
   const { title: summaryTitle, amount: summaryAmount, color: summaryColor } = summaryConfig[viewMode];
 
-  const savingsPct = totalIncome > 0 ? Math.round((netBalance / totalIncome) * 100) : 0;
+  const savingsPct = totalIncome > 0 ? Math.max(-100, Math.min(100, Math.round((netBalance / totalIncome) * 100))) : 0;
 
   // Reset selected bar when period or view changes
   useEffect(() => { setSelectedBar(null); }, [datePeriod, viewMode]);
@@ -147,7 +150,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
   }, [filtered, datePeriod, viewMode]);
 
   return (
-    <div className="screen-content" role="main" style={{ padding: '48px 20px 20px' }}>
+    <div className="screen-content safe-top" role="main" style={{ padding: '0 20px 20px' }}>
 
       {/* Header */}
       <div className="anim-fadeup" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -162,7 +165,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {/* Travel Tracker button */}
           <div
-            onClick={() => onNavigate?.('travel')}
+            onClick={() => { lightTap(); onNavigate?.('travel'); }}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '7px 12px 7px 8px', borderRadius: 20,
@@ -176,7 +179,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
 
           {/* Avatar */}
-          <div onClick={() => onNavigate?.('profile')} role="button" aria-label="Profile" style={{
+          <div onClick={() => { lightTap(); onNavigate?.('profile'); }} role="button" aria-label="Profile" style={{
             width: 44, height: 44, borderRadius: '50%',
             background: 'var(--surface2)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -193,7 +196,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
         {DATE_PERIODS.map(p => (
           <button
             key={p.id}
-            onClick={() => onPeriodChange(p.id)}
+            onClick={() => { lightTap(); onPeriodChange(p.id); }}
             aria-label={`Filter by ${p.label}`}
             style={{
               padding: '6px 14px',
@@ -214,6 +217,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
 
       {/* 3-Segment Toggle + Summary Card */}
       <div
+        data-tour="balance-card"
         className="summary-card anim-fadeup"
         style={{
           animationDelay: '0.12s', marginBottom: 20, padding: 0, overflow: 'hidden',
@@ -230,7 +234,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           {VIEW_MODES.map(mode => (
             <button
               key={mode}
-              onClick={() => setViewMode(mode)}
+              onClick={() => { lightTap(); setViewMode(mode); }}
               style={{
                 flex: 1,
                 padding: '11px 0',
@@ -257,8 +261,8 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           </div>
           {/* Main amount + savings badge on same line */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', margin: '6px 0 18px' }}>
-            <div style={{ fontSize: 36, fontWeight: 800, color: viewMode === 'All' && summaryAmount < 0 ? '#FF6B6B' : summaryColor, letterSpacing: '-1.5px', lineHeight: 1 }}>
-              {viewMode === 'All' && summaryAmount < 0 ? '−' : ''}{formatCurrency(Math.abs(summaryAmount), currency)}
+            <div style={{ fontSize: 36, fontWeight: 800, color: '#fff', letterSpacing: '-1.5px', lineHeight: 1 }}>
+              <AnimatedNumber value={Math.abs(summaryAmount)} prefix={`${viewMode === 'All' && summaryAmount < 0 ? '−' : ''}${(CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol}`} />
             </div>
             {viewMode === 'All' && totalIncome > 0 && (
               <span style={{
@@ -278,14 +282,14 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em' }}>INCOME</div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#B3FFD9', marginTop: 3 }}>
-                  +{formatCurrency(totalIncome, currency)}
+                  <AnimatedNumber value={totalIncome} prefix={`+${(CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol}`} />
                 </div>
               </div>
               <div style={{ width: 1, background: 'rgba(255,255,255,0.18)', alignSelf: 'stretch' }} />
               <div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.04em' }}>SPENT</div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#FFB3B3', marginTop: 3 }}>
-                  −{formatCurrency(totalExpense, currency)}
+                  <AnimatedNumber value={totalExpense} prefix={`−${(CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol}`} />
                 </div>
               </div>
             </div>
@@ -330,151 +334,123 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
       </div>
 
 
-      {/* Breakdown (top total + bar rows) */}
-      {breakdownData.length > 0 && (
-        <div className="card anim-fadeup" style={{ animationDelay: '0.18s', padding: '20px', marginBottom: 16 }}>
-          {/* Header */}
-          <div className="section-header" style={{ marginBottom: 14 }}>
-            <span className="section-title">
-              {viewMode === 'Income' ? 'Income Breakdown' : 'Spending Breakdown'}
-            </span>
-            <button className="section-action" onClick={() => onNavigate && onNavigate('budgets')}>See All</button>
-          </div>
-
-          {/* Total pill */}
-          <div style={{
-            display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 18,
-          }}>
-            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-              Total {viewMode === 'Income' ? 'earned' : 'spent'}
-            </span>
-            <span style={{ fontSize: 22, fontWeight: 800, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)', letterSpacing: '-0.5px' }}>
-              {viewMode === 'Income' ? '+' : '−'}{formatCurrency(breakdownTotal, currency)}
-            </span>
-          </div>
-
-          {/* Daily activity mini chart */}
-          {(() => {
-            const maxAmt = Math.max(...dailyChartData.map(d => d.amount), 1);
-            const now = new Date();
-            const pad = v => String(v).padStart(2, '0');
-            const todayStr = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-            const isIncome = viewMode === 'Income';
-            const accentColor = isIncome ? 'var(--success)' : 'var(--accent)';
-            const accentRgb   = isIncome ? '16,185,129' : '10,108,255';
-            const n = dailyChartData.length;
-            const labelEvery = n <= 8 ? 1 : n <= 16 ? 2 : n <= 20 ? 3 : 5;
-            const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            const fmtDate = date => `${MONTHS[parseInt(date.slice(5,7))-1]} ${parseInt(date.slice(8))}`;
-
-            // Info row: show selected bar, fallback to peak
-            const peakEntry = dailyChartData.reduce((a, b) => b.amount > a.amount ? b : a, { amount: 0, date: '' });
-            const infoEntry = selectedBar !== null ? dailyChartData[selectedBar] : peakEntry;
-            const infoLabel = infoEntry?.date ? (selectedBar !== null ? fmtDate(infoEntry.date) : `Peak · ${fmtDate(infoEntry.date)}`) : null;
-
-            return (
-              <div style={{ marginBottom: 20 }}>
-                {/* Header row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Daily Activity
-                  </span>
-                  {infoEntry?.amount > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                      {infoLabel}
-                      <span style={{ color: accentColor, marginLeft: 4, fontWeight: 700 }}>
-                        {isIncome ? '+' : '−'}{formatCurrency(infoEntry.amount, currency)}
-                      </span>
-                    </span>
-                  )}
+      {/* Spending Insights */}
+      {(() => {
+        const now = new Date();
+        const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+        const curCats = {}, prevCats = {};
+        let curIncome = 0, curExpense = 0, prevExpense = 0;
+        transactions.forEach(t => {
+          const m = (t.date || '').slice(0, 7);
+          if (m === curMonth) {
+            if (t.type === 'income') curIncome += t.amount;
+            else { curExpense += t.amount; curCats[t.category] = (curCats[t.category] || 0) + t.amount; }
+          } else if (m === prevMonth && t.type === 'expense') {
+            prevExpense += t.amount; prevCats[t.category] = (prevCats[t.category] || 0) + t.amount;
+          }
+        });
+        const insights = [];
+        if (curIncome > 0) {
+          const rate = Math.round(((curIncome - curExpense) / curIncome) * 100);
+          if (rate > 30) insights.push({ icon: '🎯', text: `You've saved ${rate}% of your income this month — great discipline!`, color: 'var(--success)' });
+          else if (rate > 0) insights.push({ icon: '💡', text: `Savings rate is ${rate}% this month. Aim for 20%+ for a healthy buffer.`, color: '#F59E0B' });
+          else insights.push({ icon: '⚠️', text: `You're spending more than you earn this month. Review your expenses.`, color: 'var(--danger)' });
+        }
+        Object.keys(curCats).forEach(cat => {
+          const cur = curCats[cat], prev = prevCats[cat] || 0;
+          if (prev > 0) {
+            const change = Math.round(((cur - prev) / prev) * 100);
+            const catInfo = allCategories[cat] || { label: cat };
+            if (change > 25) insights.push({ icon: '📈', text: `${catInfo.label} spending is up ${change}% vs last month`, color: 'var(--danger)' });
+            else if (change < -15) insights.push({ icon: '📉', text: `${catInfo.label} spending is down ${Math.abs(change)}% — nice!`, color: 'var(--success)' });
+          }
+        });
+        const topCat = Object.entries(curCats).sort((a, b) => b[1] - a[1])[0];
+        if (topCat) {
+          const catInfo = allCategories[topCat[0]] || { label: topCat[0] };
+          insights.push({ icon: '🏷️', text: `Biggest expense: ${catInfo.label} at ${formatCurrency(topCat[1], currency)}`, color: 'var(--text-secondary)' });
+        }
+        if (prevExpense > 0) {
+          const totalChange = Math.round(((curExpense - prevExpense) / prevExpense) * 100);
+          if (totalChange > 10) insights.push({ icon: '🔔', text: `Overall spending is ${totalChange}% higher than last month`, color: '#F59E0B' });
+          else if (totalChange < -10) insights.push({ icon: '✨', text: `Overall spending is ${Math.abs(totalChange)}% lower than last month!`, color: 'var(--success)' });
+        }
+        if (insights.length === 0) return null;
+        return (
+          <div data-tour="insights" className="card anim-fadeup" style={{ animationDelay: '0.14s', padding: '18px', marginBottom: 16 }}>
+            <div className="section-header" style={{ marginBottom: 12 }}>
+              <span className="section-title">Insights</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>This month</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {insights.slice(0, 4).map((insight, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'var(--surface2)' }}>
+                  <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{insight.icon}</span>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: insight.color, lineHeight: 1.5 }}>{insight.text}</span>
                 </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
-                {/* Bars */}
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: n > 20 ? 2 : 3, height: 56 }}>
-                  {dailyChartData.map((d, i) => {
-                    const barH = d.amount > 0 ? Math.max(Math.round((d.amount / maxAmt) * 42), 6) : 4;
-                    const isPeak = d.amount === maxAmt && d.amount > 0;
-                    const isSelected = selectedBar === i;
-                    const isToday = d.date === todayStr;
-                    const showLabel = i === 0 || i === n - 1 || isToday || i % labelEvery === 0;
+      {/* Breakdown — Donut + Legend */}
+      {breakdownData.length > 0 && (() => {
+        const isIncome = viewMode === 'Income';
+        const donutSize = 110;
+        const r = 44, cx = donutSize / 2, cy = donutSize / 2, strokeW = 10;
+        const circ = 2 * Math.PI * r;
+        let offset = 0;
+        const donutSegments = breakdownData.map(c => {
+          const pct = breakdownTotal > 0 ? (c.total / breakdownTotal) * 100 : 0;
+          const dash = (pct / 100) * circ;
+          const seg = { dash, gap: circ - dash, color: c.color, offset };
+          offset += dash;
+          return seg;
+        });
+        const fmtTotal = breakdownTotal >= 1000000
+          ? `${(CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol}${(breakdownTotal / 1000000).toFixed(2)}M`
+          : formatCurrency(breakdownTotal, currency);
 
-                    // Bar color: selected/peak = solid accent, has data = medium opacity, empty = very subtle
-                    const barBg = isSelected
-                      ? accentColor
-                      : isPeak && selectedBar === null
-                        ? accentColor
-                        : d.amount > 0
-                          ? `rgba(${accentRgb},0.28)`
-                          : 'var(--border)';
-                    const barShadow = (isSelected || (isPeak && selectedBar === null)) && d.amount > 0
-                      ? `0 2px 8px rgba(${accentRgb},0.45)`
-                      : 'none';
-
-                    return (
-                      <div
-                        key={d.date}
-                        onClick={() => setSelectedBar(isSelected ? null : i)}
-                        style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 4, cursor: d.amount > 0 ? 'pointer' : 'default' }}
-                      >
-                        {/* Selection dot above bar */}
-                        <div style={{ width: 4, height: 4, borderRadius: '50%', background: isSelected ? accentColor : 'transparent', marginBottom: 1, flexShrink: 0 }} />
-                        <div style={{
-                          width: '100%', height: barH, borderRadius: 4,
-                          background: barBg,
-                          boxShadow: barShadow,
-                          transition: 'height 0.4s cubic-bezier(0.25,0.46,0.45,0.94), background 0.2s, box-shadow 0.2s',
-                          transform: isSelected ? 'scaleX(1.15)' : 'scaleX(1)',
-                        }} />
-                        {showLabel ? (
-                          <span style={{ fontSize: 8.5, lineHeight: 1, color: isSelected ? accentColor : isToday ? accentColor : 'var(--text-tertiary)', fontWeight: isSelected || isToday ? 700 : 400, whiteSpace: 'nowrap' }}>
-                            {parseInt(d.date.slice(8))}
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: 8.5, lineHeight: 1, opacity: 0 }}>·</span>
-                        )}
-                      </div>
-                    );
-                  })}
+        return (
+          <div data-tour="breakdown" className="card anim-fadeup" onClick={() => { lightTap(); onNavigate && onNavigate('budgets'); }} style={{ animationDelay: '0.18s', padding: '18px', marginBottom: 16, cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+              {/* Donut */}
+              <div style={{ position: 'relative', width: donutSize, height: donutSize, flexShrink: 0 }}>
+                <svg width={donutSize} height={donutSize} viewBox={`0 0 ${donutSize} ${donutSize}`} style={{ transform: 'rotate(-90deg)' }}>
+                  {donutSegments.map((seg, i) => (
+                    <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={seg.color} strokeWidth={strokeW}
+                      strokeDasharray={`${seg.dash} ${seg.gap}`} strokeDashoffset={-seg.offset} />
+                  ))}
+                </svg>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-tertiary)', marginBottom: 2 }}>
+                    {isIncome ? 'Earned' : 'Spent'}
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{fmtTotal}</div>
                 </div>
               </div>
-            );
-          })()}
 
-          {/* Divider */}
-          <div style={{ height: 1, background: 'var(--border)', marginBottom: 16 }} />
-
-          {/* Category rows */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {breakdownData.slice(0, 5).map((c, i) => {
-              const pct = breakdownTotal > 0 ? (c.total / breakdownTotal) * 100 : 0;
-              return (
-                <div key={c.cat}>
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{ width: 9, height: 9, borderRadius: '50%', background: c.color, flexShrink: 0, marginRight: 8 }} />
-                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{c.label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: viewMode === 'Income' ? 'var(--success)' : 'var(--danger)' }}>
-                      {viewMode === 'Income' ? '+' : '−'}{formatCurrency(c.total, currency)}
-                    </span>
-                  </div>
-                  {/* Bar track */}
-                  <div style={{ height: 5, borderRadius: 99, background: 'var(--bg-secondary)', overflow: 'hidden' }}>
-                    <div style={{
-                      height: '100%',
-                      width: `${pct}%`,
-                      borderRadius: 99,
-                      background: c.color,
-                      transition: 'width 0.6s cubic-bezier(0.25,0.46,0.45,0.94)',
-                    }} />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 3 }}>
-                    <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-tertiary)' }}>{pct.toFixed(0)}%</span>
-                  </div>
-                </div>
-              );
-            })}
+              {/* Legend */}
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 160, overflowY: 'auto', scrollbarWidth: 'none' }}>
+                {breakdownData.map(c => {
+                  const pct = breakdownTotal > 0 ? Math.round((c.total / breakdownTotal) * 100) : 0;
+                  return (
+                    <div key={c.cat} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: '50%', background: c.color, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'monospace', flexShrink: 0 }}>{formatCurrency(c.total, currency)}</span>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-tertiary)', width: 28, textAlign: 'right', flexShrink: 0 }}>{pct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Upcoming Bills (from recurring transactions) */}
       {(() => {
@@ -674,93 +650,12 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
         );
       })()}
 
-      {/* Spending Insights */}
-      {(() => {
-        const now = new Date();
-        const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-
-        // Current month and previous month expenses by category
-        const curCats = {};
-        const prevCats = {};
-        let curIncome = 0, curExpense = 0, prevExpense = 0;
-
-        transactions.forEach(t => {
-          const m = (t.date || '').slice(0, 7);
-          if (m === curMonth) {
-            if (t.type === 'income') curIncome += t.amount;
-            else {
-              curExpense += t.amount;
-              curCats[t.category] = (curCats[t.category] || 0) + t.amount;
-            }
-          } else if (m === prevMonth && t.type === 'expense') {
-            prevExpense += t.amount;
-            prevCats[t.category] = (prevCats[t.category] || 0) + t.amount;
-          }
-        });
-
-        const insights = [];
-
-        // Savings rate
-        if (curIncome > 0) {
-          const rate = Math.round(((curIncome - curExpense) / curIncome) * 100);
-          if (rate > 30) insights.push({ icon: '\uD83C\uDFAF', text: `You've saved ${rate}% of your income this month — great discipline!`, color: 'var(--success)' });
-          else if (rate > 0) insights.push({ icon: '\uD83D\uDCA1', text: `Savings rate is ${rate}% this month. Aim for 20%+ for a healthy buffer.`, color: '#F59E0B' });
-          else insights.push({ icon: '\u26A0\uFE0F', text: `You're spending more than you earn this month. Review your expenses.`, color: 'var(--danger)' });
-        }
-
-        // Compare categories - find biggest increase
-        Object.keys(curCats).forEach(cat => {
-          const cur = curCats[cat];
-          const prev = prevCats[cat] || 0;
-          if (prev > 0) {
-            const change = Math.round(((cur - prev) / prev) * 100);
-            const catInfo = allCategories[cat] || { label: cat };
-            if (change > 25) insights.push({ icon: '\uD83D\uDCC8', text: `${catInfo.label} spending is up ${change}% vs last month`, color: 'var(--danger)' });
-            else if (change < -15) insights.push({ icon: '\uD83D\uDCC9', text: `${catInfo.label} spending is down ${Math.abs(change)}% — nice!`, color: 'var(--success)' });
-          }
-        });
-
-        // Biggest expense category
-        const topCat = Object.entries(curCats).sort((a, b) => b[1] - a[1])[0];
-        if (topCat) {
-          const catInfo = allCategories[topCat[0]] || { label: topCat[0] };
-          insights.push({ icon: '\uD83C\uDFF7\uFE0F', text: `Biggest expense: ${catInfo.label} at ${formatCurrency(topCat[1], currency)}`, color: 'var(--text-secondary)' });
-        }
-
-        // Overall spending change
-        if (prevExpense > 0) {
-          const totalChange = Math.round(((curExpense - prevExpense) / prevExpense) * 100);
-          if (totalChange > 10) insights.push({ icon: '\uD83D\uDD14', text: `Overall spending is ${totalChange}% higher than last month`, color: '#F59E0B' });
-          else if (totalChange < -10) insights.push({ icon: '\u2728', text: `Overall spending is ${Math.abs(totalChange)}% lower than last month!`, color: 'var(--success)' });
-        }
-
-        if (insights.length === 0) return null;
-
-        return (
-          <div className="card anim-fadeup" style={{ animationDelay: '0.26s', padding: '18px', marginBottom: 16 }}>
-            <div className="section-header" style={{ marginBottom: 12 }}>
-              <span className="section-title">Insights</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>This month</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {insights.slice(0, 4).map((insight, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'var(--surface2)' }}>
-                  <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{insight.icon}</span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: insight.color, lineHeight: 1.5 }}>{insight.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Recent Transactions */}
       <div className="card anim-fadeup" style={{ animationDelay: '0.24s', padding: '18px' }}>
         <div className="section-header">
           <span className="section-title">Recent Transactions</span>
-          <button className="section-action" onClick={() => onNavigate && onNavigate('transactions')}>See All</button>
+          <button className="section-action" onClick={() => { lightTap(); onNavigate && onNavigate('transactions'); }}>See All</button>
         </div>
         {recent.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-tertiary)', fontSize: 13 }}>

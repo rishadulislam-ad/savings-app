@@ -1,79 +1,206 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signInWithPopup,
+  signInWithCredential,
+  GoogleAuthProvider,
+  OAuthProvider,
+  sendPasswordResetEmail,
+  sendEmailVerification,
+} from 'firebase/auth';
+import { auth, googleProvider } from '../firebase';
 
-async function hashPassword(password, email) {
-  const encoder = new TextEncoder();
-  const salt = email.toLowerCase().trim();
-  const data = encoder.encode(password + ':' + salt + ':findo_v2');
-  const hash1 = await crypto.subtle.digest('SHA-256', data);
-  // Double hash for extra security
-  const hash2 = await crypto.subtle.digest('SHA-256', hash1);
-  const hashArray = Array.from(new Uint8Array(hash2));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+const isNative = typeof window !== 'undefined' && (window.Capacitor?.isNativePlatform?.() || navigator.userAgent.includes('Capacitor'));
+
+
+function firebaseErrorMessage(code) {
+  switch (code) {
+    case 'auth/invalid-email':
+      return 'Please enter a valid email address.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled. Contact support.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts. Please try again later.';
+    case 'auth/weak-password':
+      return 'Password needs 6+ characters with uppercase, lowercase & a number.';
+    case 'auth/email-already-in-use':
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Invalid email or password.';
+    case 'auth/network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    case 'auth/popup-closed-by-user':
+      return 'Sign-in popup was closed. Please try again.';
+    case 'auth/cancelled-popup-request':
+      return '';
+    case 'auth/popup-blocked':
+      return 'Popup was blocked by your browser. Please allow popups and try again.';
+    default:
+      return 'Something went wrong. Please try again.';
+  }
 }
 
-export default function AuthScreen({ onAuth }) {
+export default function AuthScreen() {
   const { isDark } = useTheme();
   const [mode, setMode] = useState('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [loginAttempts, setLoginAttempts] = useState(0);
+  const [loginLockUntil, setLoginLockUntil] = useState(0);
+  const [showReset, setShowReset] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetMsg, setResetMsg] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
 
   async function handleSubmit() {
     setError('');
+    // Rate limiting
+    if (loginLockUntil > Date.now()) {
+      const secs = Math.ceil((loginLockUntil - Date.now()) / 1000);
+      setError(`Too many attempts. Try again in ${secs}s`);
+      return;
+    }
     if (!email.trim() || !password.trim()) { setError('Please fill in all fields.'); return; }
     if (mode === 'signup' && !name.trim()) { setError('Please enter your name.'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters.'); return; }
-
-    const hashedPw = await hashPassword(password, email);
-
     if (mode === 'signup') {
-      const existing = localStorage.getItem(`findo_user_${email.toLowerCase()}`);
-      if (existing) { setError('An account with this email already exists.'); return; }
-      const user = { name: name.trim(), email: email.toLowerCase() };
-      localStorage.setItem(`findo_user_${email.toLowerCase()}`, JSON.stringify({ ...user, password: hashedPw }));
-      localStorage.setItem('findo_session', JSON.stringify(user));
-      onAuth(user, []);
-    } else {
-      const stored = localStorage.getItem(`findo_user_${email.toLowerCase()}`);
-      if (!stored) { setError('No account found with this email.'); return; }
-      const userData = JSON.parse(stored);
-      const isValid = userData.password === hashedPw;
-      if (!isValid) { setError('Incorrect password.'); return; }
-      const user = { name: userData.name, email: email.toLowerCase() };
-      localStorage.setItem('findo_session', JSON.stringify(user));
-      const savedTx = localStorage.getItem(`findo_transactions_${email.toLowerCase()}`);
-      onAuth(user, savedTx ? JSON.parse(savedTx) : []);
+      if (!/[A-Z]/.test(password)) { setError('Password needs at least one uppercase letter.'); return; }
+      if (!/[a-z]/.test(password)) { setError('Password needs at least one lowercase letter.'); return; }
+      if (!/[0-9]/.test(password)) { setError('Password needs at least one number.'); return; }
+    }
+
+    setLoading(true);
+    try {
+      if (mode === 'signup') {
+        const credential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await updateProfile(credential.user, { displayName: name.trim() });
+        sendEmailVerification(credential.user).catch(() => {});
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+    } catch (err) {
+      const attempts = loginAttempts + 1;
+      setLoginAttempts(attempts);
+      if (attempts >= 5) {
+        setLoginLockUntil(Date.now() + 60000);
+        setError('Too many failed attempts. Please wait 1 minute.');
+        setLoginAttempts(0);
+      } else {
+        const msg = firebaseErrorMessage(err.code);
+        if (msg) setError(msg);
+      }
+    } finally {
+      setLoading(false);
     }
   }
 
-  function handleSocialLogin(provider) {
-    const providerName = provider === 'google' ? 'Google' : 'Apple';
-    const mockEmail = `${provider}_${Date.now()}@${provider}.com`;
-    const user = { name: `${providerName} User`, email: mockEmail, provider };
-    localStorage.setItem('findo_session', JSON.stringify(user));
-    onAuth(user, []);
+  async function handleGoogleLogin() {
+    setError('');
+    setLoading(true);
+    try {
+      if (isNative) {
+        // Android — use native Google Sign-In plugin
+        const { GoogleAuth } = await import('@codetrix-studio/capacitor-google-auth');
+        const result = await GoogleAuth.signIn();
+        const credential = GoogleAuthProvider.credential(result.authentication.idToken);
+        await signInWithCredential(auth, credential);
+      } else {
+        // Web — use Firebase popup
+        await signInWithPopup(auth, googleProvider);
+      }
+    } catch (err) {
+      console.error('Google login error:', err);
+      const msg = firebaseErrorMessage(err.code || err.message);
+      if (msg) setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleAppleLogin() {
+    setError('');
+    setLoading(true);
+    try {
+      if (isNative) {
+        const { SignInWithApple } = await import('@capacitor-community/apple-sign-in');
+        const result = await SignInWithApple.authorize({
+          clientId: 'com.coinova.app',
+          redirectURI: 'https://coinova-2219a.firebaseapp.com/__/auth/handler',
+          scopes: 'email name',
+        });
+        const { identityToken, givenName, familyName } = result.response;
+        const credential = new OAuthProvider('apple.com').credential({
+          idToken: identityToken,
+          rawNonce: undefined,
+        });
+        const userCred = await signInWithCredential(auth, credential);
+        // Apple only sends name on FIRST sign-in, so save it if present
+        if ((givenName || familyName) && !userCred.user.displayName) {
+          const fullName = [givenName, familyName].filter(Boolean).join(' ');
+          if (fullName) await updateProfile(userCred.user, { displayName: fullName });
+        }
+      } else {
+        const appleProvider = new OAuthProvider('apple.com');
+        appleProvider.addScope('email');
+        appleProvider.addScope('name');
+        await signInWithPopup(auth, appleProvider);
+      }
+    } catch (err) {
+      console.error('Apple login error:', err);
+      if (err.message?.includes('1001') || err.code === 'ERR_SIGN_IN_CANCELLED') return; // User cancelled
+      const msg = firebaseErrorMessage(err.code || err.message);
+      if (msg) setError(msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResetPassword() {
+    setResetMsg('');
+    if (!resetEmail.trim()) { setResetMsg('Enter your email'); return; }
+
+    setResetLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, resetEmail.trim());
+    } catch (_) {
+      // Silently ignore errors to prevent user enumeration
+    } finally {
+      setResetLoading(false);
+      setResetMsg('If an account exists, a reset link has been sent.');
+    }
   }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg)', overflowY: 'auto' }}>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '48px 24px 32px' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 24px 32px' }}>
 
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{
             width: 76, height: 76, borderRadius: 24,
-            background: 'linear-gradient(145deg, #1A7FFF, #0044CC)',
+            background: 'linear-gradient(145deg, #1A1A2E, #16213E)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             margin: '0 auto 16px',
-            boxShadow: '0 8px 32px rgba(10,108,255,0.4)',
-            fontSize: 34,
+            boxShadow: '0 4px 16px rgba(10,108,255,0.1)',
           }}>
-            💰
+            <svg width="42" height="42" viewBox="0 0 64 64" fill="none">
+              <rect x="12" y="38" width="40" height="7" rx="3.5" fill="#0A6CFF" opacity="0.25"/>
+              <rect x="15" y="29" width="34" height="7" rx="3.5" fill="#0A6CFF" opacity="0.45"/>
+              <rect x="18" y="20" width="28" height="7" rx="3.5" fill="#0A6CFF" opacity="0.7"/>
+              <rect x="21" y="11" width="22" height="7" rx="3.5" fill="#0A6CFF"/>
+              <path d="M32 52V44" stroke="#34D399" strokeWidth="2.5" strokeLinecap="round"/>
+              <path d="M28 48L32 44L36 48" stroke="#34D399" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
           </div>
-          <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-1px' }}>Findo</div>
-          <div style={{ fontSize: 14, color: 'var(--text-tertiary)', marginTop: 4 }}>Smart money management</div>
+          <div style={{ fontSize: 30, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '2px', textTransform: 'uppercase' }}>Coinova</div>
+          <div style={{ fontSize: 14, color: 'var(--text-tertiary)', marginTop: 4 }}>Where your money makes sense.</div>
         </div>
 
         {/* Mode Toggle */}
@@ -97,13 +224,30 @@ export default function AuthScreen({ onAuth }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {mode === 'signup' && (
             <input className="form-input" placeholder="Full name"
-              value={name} onChange={e => setName(e.target.value)} />
+              value={name} onChange={e => setName(e.target.value)} disabled={loading} />
           )}
           <input className="form-input" type="email" placeholder="Email address"
-            value={email} onChange={e => setEmail(e.target.value)} />
-          <input className="form-input" type="password" placeholder="Password (min 6 characters)"
+            value={email} onChange={e => setEmail(e.target.value)} disabled={loading} />
+          <input className="form-input" type="password" placeholder="Password (A-z, 0-9, min 6 chars)"
             value={password} onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleSubmit()} />
+            onKeyDown={e => e.key === 'Enter' && !loading && handleSubmit()} disabled={loading} />
+
+          {mode === 'signup' && password.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                { label: '6+ chars', met: password.length >= 6 },
+                { label: 'A-Z', met: /[A-Z]/.test(password) },
+                { label: 'a-z', met: /[a-z]/.test(password) },
+                { label: '0-9', met: /[0-9]/.test(password) },
+              ].map(r => (
+                <span key={r.label} style={{
+                  fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+                  background: r.met ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                  color: r.met ? 'var(--success)' : 'var(--danger)',
+                }}>{r.met ? '\u2713' : '\u2717'} {r.label}</span>
+              ))}
+            </div>
+          )}
 
           {error && (
             <div style={{
@@ -114,9 +258,21 @@ export default function AuthScreen({ onAuth }) {
             }}>{error}</div>
           )}
 
-          <button className="btn-primary" onClick={handleSubmit} style={{ marginTop: 4 }}>
-            {mode === 'signin' ? 'Sign In' : 'Create Account'}
+          <button className="btn-primary" onClick={handleSubmit} disabled={loading} style={{ marginTop: 4, opacity: loading ? 0.6 : 1 }}>
+            {loading
+              ? (mode === 'signin' ? 'Signing In...' : 'Creating Account...')
+              : (mode === 'signin' ? 'Sign In' : 'Create Account')
+            }
           </button>
+
+          {mode === 'signin' && (
+            <div onClick={() => { setShowReset(true); setResetEmail(email); setResetMsg(''); }} style={{
+              textAlign: 'center', marginTop: 10, fontSize: 13, color: 'var(--accent)',
+              fontWeight: 600, cursor: 'pointer',
+            }}>
+              Forgot Password?
+            </div>
+          )}
         </div>
 
         {/* Divider */}
@@ -128,12 +284,12 @@ export default function AuthScreen({ onAuth }) {
 
         {/* Social Buttons */}
         <div style={{ display: 'flex', gap: 12 }}>
-          <button onClick={() => handleSocialLogin('google')} style={{
+          <button onClick={handleGoogleLogin} disabled={loading} style={{
             flex: 1, padding: '13px', borderRadius: 16,
             background: 'var(--surface)', border: '1.5px solid var(--border)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
-            transition: 'opacity 0.15s',
+            transition: 'opacity 0.15s', opacity: loading ? 0.6 : 1,
           }}>
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.716v2.259h2.908C16.658 14.131 17.64 11.824 17.64 9.2z" fill="#4285F4"/>
@@ -143,12 +299,12 @@ export default function AuthScreen({ onAuth }) {
             </svg>
             Google
           </button>
-          <button onClick={() => handleSocialLogin('apple')} style={{
+          <button onClick={handleAppleLogin} disabled={loading} style={{
             flex: 1, padding: '13px', borderRadius: 16,
             background: 'var(--surface)', border: '1.5px solid var(--border)',
-            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 14, fontWeight: 600, color: 'var(--text-primary)',
-            transition: 'opacity 0.15s',
+            transition: 'opacity 0.15s', opacity: loading ? 0.6 : 1,
           }}>
             <svg width="14" height="17" viewBox="0 0 384 512" fill="currentColor">
               <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/>
@@ -161,11 +317,52 @@ export default function AuthScreen({ onAuth }) {
       <div style={{ padding: '0 24px 32px', textAlign: 'center' }}>
         <span style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
           By continuing, you agree to our{' '}
-          <span style={{ color: 'var(--accent)' }}>Terms of Service</span>
-          {' '}and{' '}
-          <span style={{ color: 'var(--accent)' }}>Privacy Policy</span>
+          <a
+            href="https://rishadulislam-ad.github.io/savings-app/terms-of-service.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--accent)', textDecoration: 'none' }}
+          >Terms of Service</a>{' '}and{' '}
+          <a
+            href="https://rishadulislam-ad.github.io/savings-app/privacy-policy.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--accent)', textDecoration: 'none' }}
+          >Privacy Policy</a>.
         </span>
       </div>
+
+      {/* Forgot Password Sheet */}
+      {showReset && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+          <div onClick={() => setShowReset(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
+          <div style={{
+            position: 'relative', width: '100%', maxWidth: 420, padding: '24px 20px 32px',
+            borderRadius: '24px 24px 0 0', background: 'var(--surface)', animation: 'slideUp 0.3s ease both',
+          }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 }}>Reset Password</div>
+            <div style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 16 }}>Enter your email to receive a password reset link.</div>
+
+            {resetMsg && (
+              <div style={{
+                padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
+                background: 'rgba(16,185,129,0.1)',
+                color: 'var(--success)',
+              }}>{resetMsg}</div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <input className="form-input" type="email" placeholder="Email address"
+                value={resetEmail} onChange={e => setResetEmail(e.target.value)} disabled={resetLoading} />
+
+              <button className="btn-primary" onClick={handleResetPassword} disabled={resetLoading} style={{ marginTop: 4, opacity: resetLoading ? 0.6 : 1 }}>
+                {resetLoading ? 'Sending...' : 'Send Reset Link'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

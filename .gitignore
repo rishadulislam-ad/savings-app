@@ -4,3 +4,18 @@ dist/
 *.local
 .env
 .env.*
+
+# Android signing keystores — NEVER commit. If leaked, anyone can sign
+# updates as you and publish them to your Play Store account.
+*.keystore
+*.jks
+
+# Firebase Android client config — public-safe but project-scoped, easier
+# to keep out of git so a fork doesn't inherit your project ID.
+android/app/google-services.json
+
+# Local Firebase Emulator state
+.firebase/
+
+# Build output
+.next/

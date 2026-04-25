@@ -14,17 +14,18 @@
         p { margin-bottom: 16px; color: #444; }
         ul { margin-bottom: 16px; padding-left: 24px; }
         li { margin-bottom: 8px; color: #444; }
+        a { color: #0A6CFF; }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Terms of Service</h1>
-        <p class="date">Last updated: April 13, 2026</p>
+        <p class="date">Last updated: April 26, 2026</p>
 
         <p>Welcome to Coinova. By downloading, installing, or using the Coinova mobile application ("App"), you agree to these Terms of Service ("Terms"). If you do not agree, do not use the App.</p>
 
         <h2>1. Description of Service</h2>
-        <p>Coinova is a personal finance management application that allows you to track income, expenses, budgets, savings goals, travel expenses, and store card information securely on your device. The App is provided by Adverge Media ("we", "us", "our").</p>
+        <p>Coinova is a personal finance management application that allows you to track income, expenses, budgets, savings goals, travel expenses, and store card information securely on your device. The App is provided by Adverge Media ("we", "us", "our"). The App is a personal budgeting tool — it is not a regulated financial service, financial advisor, or banking product.</p>
 
         <h2>2. Eligibility</h2>
         <p>You must be at least 18 years old to use Coinova. By using the App, you confirm that you meet this requirement.</p>
@@ -40,56 +41,70 @@
             <li>Reverse engineer, decompile, or disassemble the App</li>
             <li>Interfere with or disrupt the App's functionality or servers</li>
             <li>Use the App to store information other than your own personal financial data</li>
+            <li>Submit any data that infringes third-party rights or violates applicable law</li>
         </ul>
 
         <h2>5. Data and Privacy</h2>
-        <p>Your use of the App is also governed by our <a href="privacy-policy.html">Privacy Policy</a>. By using the App, you consent to the collection and use of data as described in the Privacy Policy.</p>
+        <p>Your use of the App is also governed by our <a href="privacy-policy.html">Privacy Policy</a>. By using the App, you consent to the collection and use of data as described there.</p>
 
         <h2>6. Card Data Security</h2>
-        <p>Card numbers and CVVs you store in the App are encrypted with AES-256-GCM and stored only on your device. This data never leaves your device or syncs to the cloud. We do not have access to your full card numbers. You are responsible for protecting access to your device and the App's security features (Face ID, PIN).</p>
+        <p>Card numbers and CVVs you store in the App are encrypted with AES-256-GCM. The encryption key is generated randomly on first use and stored in iOS Keychain or Android Keystore — the operating system only releases the key to this app. The encrypted card data and the key both stay on your device, and never sync to the cloud or to us. We do not have access to your full card numbers under any circumstances. You are responsible for protecting access to your device and the App's security features (Face ID, Touch ID, PIN).</p>
+        <p>If you copy a full card number or CVV from the in-app Wallet, the value is automatically wiped from the system clipboard 30 seconds later, or immediately when you switch to another app, to limit clipboard exposure.</p>
 
         <h2>7. Cloud Synchronization</h2>
-        <p>Transaction data, budgets, savings goals, and account settings sync to Firebase Cloud Firestore to enable cross-device access. You can delete all cloud data at any time from within the App. We use Firebase App Check to protect against unauthorized access to your data.</p>
+        <p>Transaction data, budgets, savings goals, travel trips, card metadata (last 4 digits, name, expiry, network only), and account settings sync to Firebase Cloud Firestore to enable cross-device access. Cloud writes use atomic per-element operations so that changes made on one device while another is offline are merged correctly when both reconnect — you will not silently lose entries to write conflicts. You can delete all cloud data at any time from within the App. Firebase App Check (Apple App Attest on iOS, Google Play Integrity on Android, reCAPTCHA v3 on web) gates all backend access.</p>
 
-        <h2>8. Disclaimer of Warranties</h2>
+        <h2>8. Notifications</h2>
+        <p>Notifications (budget alerts, bill reminders, weekly summary, savings milestones) are optional and can be enabled or disabled from Profile → Notifications. All notifications are local to your device — we do not send push notifications from a server. You may revoke notification permission at any time in your device's system settings.</p>
+
+        <h2>9. Disclaimer of Warranties</h2>
         <p>Coinova is provided "as is" and "as available" without warranties of any kind, whether express or implied. We do not guarantee that:</p>
         <ul>
             <li>The App will be uninterrupted, error-free, or secure</li>
-            <li>Financial data or calculations will be perfectly accurate</li>
+            <li>Financial data, calculations, projections, or AI insights will be perfectly accurate</li>
             <li>The App will meet all of your requirements</li>
-            <li>Exchange rates provided are real-time or guaranteed accurate</li>
+            <li>Exchange rates fetched from third-party APIs are real-time or guaranteed accurate</li>
+            <li>Notifications (budget alerts, bill reminders, etc.) will fire at exact times — operating system policies may delay or batch them</li>
+            <li>Cloud sync will deliver data instantly under all network conditions</li>
         </ul>
-        <p>Coinova is a personal budgeting tool, not a financial advisor. Do not rely solely on the App for financial decisions.</p>
+        <p>Coinova is a personal budgeting tool, not a financial advisor. Do not rely solely on the App for financial decisions, tax filings, debt repayment, or investment choices.</p>
 
-        <h2>9. Limitation of Liability</h2>
-        <p>To the maximum extent permitted by law, Adverge Media shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of or inability to use the App, including but not limited to loss of data, financial loss, or business interruption.</p>
+        <h2>10. Limitation of Liability</h2>
+        <p>To the maximum extent permitted by law, Adverge Media shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of or inability to use the App, including but not limited to loss of data, financial loss, missed payments, or business interruption.</p>
 
-        <h2>10. Account Deletion</h2>
-        <p>You may delete your account at any time from within the App (Profile > Delete My Account). This permanently removes your Firebase authentication account, all cloud-stored data, and local data from the device. This action cannot be undone.</p>
+        <h2>11. Account Deletion</h2>
+        <p>You may delete your account at any time from within the App (Profile → Delete My Account). This permanently removes your Firebase authentication account, all cloud-stored data, all local data, the encryption keys stored in iOS Keychain / Android Keystore, and any scheduled notifications. This action cannot be undone.</p>
 
-        <h2>11. Intellectual Property</h2>
+        <h2>12. Backups</h2>
+        <p>You may export a backup of your data as a JSON file from Profile → Your Data → Backup Data. You may optionally encrypt the backup with a passphrase you choose. If you forget that passphrase, the encrypted backup cannot be recovered — there is no key-escrow mechanism. We recommend storing the passphrase in a secure password manager.</p>
+
+        <h2>13. Intellectual Property</h2>
         <p>The Coinova name, logo, design, and all content within the App are the property of Adverge Media. You may not copy, modify, distribute, or create derivative works based on the App without our written permission.</p>
 
-        <h2>12. Third-Party Services</h2>
-        <p>Coinova uses the following third-party services:</p>
+        <h2>14. Third-Party Services</h2>
+        <p>Coinova uses the following third-party services. Their respective terms and privacy policies apply to the portions of the App that interact with them:</p>
         <ul>
-            <li><strong>Firebase</strong> (Google) - Authentication, database, App Check</li>
-            <li><strong>Google Sign-In</strong> - OAuth authentication</li>
-            <li><strong>Sign in with Apple</strong> - OAuth authentication</li>
-            <li><strong>Open Exchange Rate API</strong> - Currency conversion rates</li>
+            <li><strong>Firebase</strong> (Google) — Authentication, Firestore database, App Check</li>
+            <li><strong>Google Sign-In</strong> — OAuth authentication (optional)</li>
+            <li><strong>Sign in with Apple</strong> — OAuth authentication (optional, iOS)</li>
+            <li><strong>Open Exchange Rate API</strong> (open.exchangerate-api.com) — currency conversion rates, used by the in-app Currency Converter</li>
+            <li><strong>Apple App Attest</strong> (iOS) and <strong>Google Play Integrity</strong> (Android) — anti-abuse signals consumed by Firebase App Check</li>
         </ul>
-        <p>These services have their own terms and privacy policies. We are not responsible for the practices of third-party services.</p>
+        <p>We are not responsible for the practices of third-party services.</p>
 
-        <h2>13. Changes to Terms</h2>
+        <h2>15. Changes to Terms</h2>
         <p>We may update these Terms from time to time. Continued use of the App after changes constitutes acceptance of the updated Terms. Material changes will be communicated through the App or via email.</p>
 
-        <h2>14. Termination</h2>
+        <h2>16. Termination</h2>
         <p>We reserve the right to suspend or terminate your access to the App if you violate these Terms. You may stop using the App at any time by deleting your account and uninstalling the App.</p>
 
-        <h2>15. Governing Law</h2>
+        <h2>17. Governing Law</h2>
         <p>These Terms shall be governed by and construed in accordance with applicable laws, without regard to conflict of law principles.</p>
 
-        <h2>16. Contact Us</h2>
+        <h2>18. App Store Terms</h2>
+        <p>If you downloaded the App from the Apple App Store or Google Play, you also agree to that store's terms of service. In the event of a conflict between those terms and these Terms in respect of distribution and licensing of the App, the relevant store's terms govern that aspect.</p>
+
+        <h2>19. Contact Us</h2>
         <p>If you have any questions about these Terms, please contact us at:</p>
         <p><strong>Email:</strong> hello@advergemedia.com</p>
 

@@ -20,25 +20,25 @@
 <body>
     <div class="container">
         <h1>Privacy Policy</h1>
-        <p class="date">Last updated: April 11, 2026</p>
+        <p class="date">Last updated: April 26, 2026</p>
 
-        <p>Coinova ("we", "our", or "the app") is a personal finance management application. We are committed to protecting your privacy. This Privacy Policy explains what information Coinova collects, how it is stored, and who it is shared with when you use the app.</p>
+        <p>Coinova ("we", "our", or "the app") is a personal finance management application provided by Adverge Media. We are committed to protecting your privacy. This Privacy Policy explains what information Coinova collects, how it is stored, how it is protected, and who it is shared with when you use the app.</p>
 
         <h2>1. Information We Collect</h2>
         <p>To enable account access and cross-device sync, Coinova collects the following:</p>
         <ul>
-            <li><strong>Account Information:</strong> When you create an account, you provide an email address and password (or sign in with Google). This information is processed by Firebase Authentication, a service provided by Google.</li>
+            <li><strong>Account Information:</strong> When you create an account, you provide an email address and password (or sign in with Google or Apple). This is processed by Firebase Authentication, a service provided by Google. Apple Sign-In may forward a relayed email address.</li>
             <li><strong>Financial Data:</strong> Transactions, categories, tags, budgets, savings goals, travel trips, and currency preferences that you enter into the app are stored in Firebase Cloud Firestore, scoped to your account, so that you can access them across your devices.</li>
-            <li><strong>Card Metadata:</strong> If you choose to add a payment card to the in-app wallet, only the cardholder name, card type, expiry, and last 4 digits sync to Firebase Cloud Firestore. The full card number and CVV are encrypted on your device using AES-256-GCM with a key derived from your PIN or biometric lock, and never leave your device.</li>
+            <li><strong>Card Metadata:</strong> If you choose to add a payment card to the in-app wallet, only the cardholder name, card label, network (Visa / Mastercard / Amex / Other), expiry, and last 4 digits sync to Firebase Cloud Firestore. The full card number and CVV are encrypted on your device with AES-256-GCM and never leave the device they were entered on. The encryption key itself is stored in iOS Keychain or Android Keystore — see Section 5 below.</li>
         </ul>
 
         <h2>2. How Your Data is Stored</h2>
         <p>Coinova uses two layers of storage:</p>
         <ul>
-            <li><strong>On-device cache:</strong> Your data is kept in local storage on your device for fast access and offline use.</li>
-            <li><strong>Cloud sync (Firebase Cloud Firestore):</strong> The same data is mirrored to your private Firestore document, scoped to your authenticated account, so it can be restored or accessed on other devices. Firestore is hosted by Google Cloud.</li>
+            <li><strong>On-device cache:</strong> Your data is kept in local app storage on your device for fast access and full offline use.</li>
+            <li><strong>Cloud sync (Firebase Cloud Firestore):</strong> The same data is mirrored to your private Firestore document, scoped to your authenticated account, so it can be restored or accessed on other devices. Firestore is hosted by Google Cloud. Updates use atomic per-element operations (Firestore arrayUnion / arrayRemove), which means changes you make on one device while another is offline are merged correctly when both reconnect — your data is never silently overwritten by a stale write.</li>
         </ul>
-        <p>Sensitive card data (full PAN and CVV) is the exception — it is encrypted on-device only and never transmitted.</p>
+        <p>Sensitive card data (full card number and CVV) is the exception — it is encrypted on-device only and never transmitted.</p>
 
         <h2>3. Data We Do NOT Collect</h2>
         <p>We do not collect, store, or process:</p>
@@ -49,50 +49,69 @@
             <li>Contact lists</li>
             <li>Photos or media (other than what you explicitly attach)</li>
             <li>Advertising identifiers</li>
-            <li>Behavioral analytics or usage tracking</li>
+            <li>Behavioral analytics, crash analytics, or usage tracking</li>
         </ul>
+        <p>The app does not integrate with any analytics SDK or advertising network.</p>
 
         <h2>4. Third-Party Services</h2>
         <p>Coinova relies on the following third-party services to operate. By using the app, you agree to their respective privacy policies:</p>
         <ul>
             <li><strong>Firebase Authentication</strong> (Google) — for sign-up, sign-in, and password reset. <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase Privacy</a></li>
             <li><strong>Firebase Cloud Firestore</strong> (Google) — for secure cloud storage and cross-device sync of your data. <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase Privacy</a></li>
-            <li><strong>Firebase App Check</strong> with reCAPTCHA v3 (web), Play Integrity (Android), and App Attest (iOS) — to protect Coinova's backend from abuse. These services may process device or browser signals to verify the request is coming from a genuine app instance. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy</a></li>
+            <li><strong>Firebase App Check</strong> with reCAPTCHA v3 (web), Google Play Integrity (Android), and Apple App Attest (iOS) — to verify requests are coming from a genuine app instance. App Check tokens are refreshed every ~15 minutes. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Google Privacy</a></li>
             <li><strong>Google Sign-In</strong> (optional) — if you choose to sign in with Google.</li>
+            <li><strong>Sign in with Apple</strong> (optional, iOS only) — if you choose to sign in with Apple.</li>
+            <li><strong>Open Exchange Rate API</strong> (open.exchangerate-api.com) — if you use the in-app Currency Converter, the app fetches live exchange rates over HTTPS. No personal information is sent — only the request itself for current rates.</li>
         </ul>
         <p>We do not integrate with advertising networks, analytics SDKs, or third-party trackers. We do not sell or share your data with anyone outside the services listed above.</p>
 
         <h2>5. Data Security</h2>
-        <p>We take the following measures to protect your data:</p>
+        <p>Coinova takes the following measures to protect your data:</p>
         <ul>
-            <li>Authentication is handled server-side by Firebase, with industry-standard password hashing and brute-force protection.</li>
-            <li>Cloud data is transmitted over TLS and stored in your private Firestore document, accessible only to your authenticated account.</li>
-            <li>Sensitive card data (full PAN, CVV) is encrypted on-device using AES-256-GCM with a key derived via PBKDF2 from your PIN, and is never transmitted.</li>
-            <li>The app supports a PIN lock and optional biometric (Face ID / fingerprint) lock to prevent unauthorized access on your device.</li>
-            <li>Firebase App Check is enabled to prevent unauthorized clients from accessing the backend.</li>
+            <li><strong>Authentication</strong> is handled server-side by Firebase, with industry-standard password hashing and brute-force protection.</li>
+            <li><strong>Cloud transport</strong> uses TLS. Cloud data is stored in your private Firestore document, accessible only to your authenticated account. Firestore Security Rules also restrict the document to a fixed allowlist of fields and per-array size caps, blocking accidental or malicious writes outside the app's expected schema.</li>
+            <li><strong>Card secrets</strong> (full card number and CVV) are encrypted with AES-256-GCM. The 256-bit AES key is randomly generated on first use and stored in <strong>iOS Keychain</strong> or <strong>Android Keystore</strong> — the operating system only releases the key to this app's bundle id. Even with full read access to the device's app storage, the encrypted card data cannot be decrypted without the OS-protected key.</li>
+            <li><strong>PIN security:</strong> if you enable a PIN lock, the PIN is hashed with PBKDF2 (100,000 iterations + a per-user random salt) and the hash is stored in iOS Keychain / Android Keystore — not in regular app storage. After 4 wrong PIN attempts, the app locks for an exponentially increasing window (30s → 2min → 5min → 15min). The lockout timer survives app close/reopen, so a force-quit cannot reset it.</li>
+            <li><strong>Biometric lock:</strong> Face ID / Touch ID / fingerprint is supported as an alternative to or in addition to PIN. Verification is performed by the operating system; biometric data never reaches the app.</li>
+            <li><strong>Backups:</strong> if you export a backup file, you can optionally encrypt it with a passphrase you choose. The encryption uses PBKDF2 (200,000 iterations) and AES-256-GCM. Without the passphrase, an exported encrypted backup cannot be decrypted by anyone — including us.</li>
+            <li><strong>Network policy on Android:</strong> the app trusts only system-installed certificate authorities and rejects all cleartext (HTTP) traffic. User-installed root CAs cannot intercept the app's network traffic. Combined with App Check, this defends against on-device man-in-the-middle on managed or shared devices.</li>
+            <li><strong>Web defenses:</strong> the in-app browser content uses a strict Content-Security-Policy that blocks third-party scripts, iframes, plugins, and clickjacking, and forces HTTPS upgrades on any incidental HTTP URLs.</li>
+            <li><strong>Clipboard hygiene:</strong> when you copy a full card number or CVV from the in-app Wallet, the value is automatically wiped from the clipboard 30 seconds later, or immediately when you switch to another app — preventing other apps' clipboard widgets from reading your card data later.</li>
+            <li><strong>Logs:</strong> production builds of the app strip all developer console output. We do not send logs or crash reports off-device.</li>
         </ul>
         <p>You should also keep your device's operating system updated and use a device passcode or biometric lock.</p>
 
-        <h2>6. Data Deletion</h2>
+        <h2>6. Notifications</h2>
+        <p>If you enable notifications in Profile → Notifications, the app schedules local notifications on your device for:</p>
+        <ul>
+            <li>Budget alerts when spending in any category passes your chosen threshold (default 80%)</li>
+            <li>Bill reminders 3 days before each recurring transaction's next due date</li>
+            <li>Optional weekly summary every Sunday at 6pm local</li>
+            <li>Savings goal milestones when you cross 25%, 50%, 75%, or 100% of a goal's target</li>
+        </ul>
+        <p>All notifications are scheduled and fired locally on your device. We do not send push notifications from a server, and no information about which notifications fire, or whether you tap them, leaves your device.</p>
+
+        <h2>7. Data Deletion</h2>
         <p>You can delete your data in several ways:</p>
         <ul>
-            <li><strong>Delete individual items</strong> within the app (transactions, budgets, cards, etc.)</li>
-            <li><strong>Delete your entire account</strong> from within the app's profile settings — this removes both the local cache and all associated data in Firebase.</li>
-            <li><strong>Uninstall the app</strong> to remove the local cache (cloud data will remain until you delete your account).</li>
+            <li><strong>Delete individual items</strong> within the app (transactions, budgets, cards, savings goals, trips, etc.).</li>
+            <li><strong>Delete All Data & Reset</strong> from Profile — wipes the local app cache, deletes the Firestore document, removes the Keychain / Keystore entries (encryption key + PIN hash), cancels scheduled notifications, and signs you out.</li>
+            <li><strong>Delete My Account</strong> from Profile — does everything Delete All Data does, AND permanently deletes your Firebase Authentication account. This action cannot be undone.</li>
+            <li><strong>Uninstall the app</strong> to remove the local cache. Cloud data will remain until you delete your account.</li>
         </ul>
         <p>To request manual deletion of your account and all associated data, contact us at the email address below.</p>
 
-        <h2>7. Children's Privacy</h2>
+        <h2>8. Children's Privacy</h2>
         <p>Coinova is not intended for use by children under the age of 18. We do not knowingly collect information from children under 18.</p>
 
-        <h2>8. Changes to This Policy</h2>
+        <h2>9. Changes to This Policy</h2>
         <p>We may update this Privacy Policy from time to time. Any changes will be reflected on this page with an updated revision date.</p>
 
-        <h2>9. Contact Us</h2>
+        <h2>10. Contact Us</h2>
         <p>If you have any questions about this Privacy Policy, please contact us at:</p>
         <p><strong>Email:</strong> hello@advergemedia.com</p>
 
-        <p style="margin-top: 40px; color: #999; font-size: 13px;">&copy; 2026 Coinova. All rights reserved.</p>
+        <p style="margin-top: 40px; color: #999; font-size: 13px;">&copy; 2026 Coinova by Adverge Media. All rights reserved.</p>
     </div>
 </body>
 </html>

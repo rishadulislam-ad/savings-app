@@ -4,8 +4,8 @@ import {
   ReCaptchaV3Provider,
   CustomProvider,
 } from 'firebase/app-check';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, browserLocalPersistence, setPersistence } from 'firebase/auth';
+import { initializeFirestore, persistentLocalCache, persistentSingleTabManager } from 'firebase/firestore';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAppCheck } from '@capacitor-firebase/app-check';
 
@@ -31,16 +31,24 @@ const isNative = Capacitor.isNativePlatform();
 try {
   if (isNative) {
     // Native: bridge tokens from the native plugin into the JS SDK.
+    //
+    // Token TTL is 15 min instead of 1h. Reasoning: the SDK auto-refreshes
+    // on expiry, and shorter tokens mean a much smaller window in which a
+    // leaked token could be replayed by an off-device attacker. The native
+    // App Attest / Play Integrity attestation behind the token isn't free
+    // but is well within mobile data/battery budget at 4 refreshes/hour.
     initializeAppCheck(app, {
       provider: new CustomProvider({
         getToken: async () => {
+          // forceRefresh: true ensures the plugin re-attests with the OS on
+          // each fetch instead of returning a cached token, so the 15-min
+          // window is real (and not extended by a stale cache).
           const { token } = await FirebaseAppCheck.getToken({
-            forceRefresh: false,
+            forceRefresh: true,
           });
-          // The plugin returns expiry as ms-since-epoch; SDK wants ms-from-now.
           return {
             token,
-            expireTimeMillis: Date.now() + 60 * 60 * 1000, // 1h
+            expireTimeMillis: Date.now() + 15 * 60 * 1000, // 15 min
           };
         },
       }),
@@ -57,5 +65,13 @@ try {
 }
 
 export const auth = getAuth(app);
+// Persist auth session in localStorage so user stays logged in offline
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
 export const googleProvider = new GoogleAuthProvider();
-export const db = getFirestore(app);
+
+// Firestore with offline persistence — reads/writes work without internet,
+// and sync automatically when connection returns
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentSingleTabManager() }),
+});

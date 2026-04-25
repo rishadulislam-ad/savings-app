@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { formatCurrency, CURRENCIES, CATEGORIES } from '../../data/transactions';
 import FeatureTip from '../../components/FeatureTip';
 
-import { saveUserData } from '../../utils/firestore';
+import { addSavingsGoalToCloud, removeSavingsGoalFromCloud, updateSavingsGoalInCloud } from '../../utils/firestore';
 import { uuid } from '../../utils/storage';
+import { todayLocal } from '../../utils/date';
 
 /* ─── My Finances — Multi-Goal + Auto-Transaction ─────────── */
 export default function MyFinances({ onClose, transactions, currentUser, currency, onAddTransaction, onDeleteTransaction, embedded = false }) {
@@ -19,13 +20,13 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
     } catch { return []; }
   });
 
-  // Persist goals on change
+  // Persist goals to localStorage on every change. Cloud sync uses atomic
+  // arrayUnion / arrayRemove inside each mutation function below — bundling
+  // the whole goals array via saveUserData would race against concurrent
+  // edits from other devices and silently drop additions/changes.
   useEffect(() => {
-    if (storageKey) {
-      localStorage.setItem(storageKey, JSON.stringify(goals));
-      if (currentUser?.uid) saveUserData(currentUser.uid, { savingsGoals: goals });
-    }
-  }, [goals, storageKey, currentUser?.uid]);
+    if (storageKey) localStorage.setItem(storageKey, JSON.stringify(goals));
+  }, [goals, storageKey]);
 
   const [expandedGoal, setExpandedGoal] = useState(null);
   const [addingTo, setAddingTo] = useState(null);
@@ -102,15 +103,32 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
     const amt = parseFloat(newDepAmount.replace(/,/g, ''));
     if (!amt || amt <= 0) return;
 
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayLocal();
     const goal = goals.find(g => g.id === goalId);
     const depNote = newDepNote || `Savings: ${goal?.label}`;
 
-    // 1. Add deposit to goal
-    setGoals(prev => prev.map(g => g.id === goalId ? {
-      ...g,
-      deposits: [{ id: 's_' + uuid(), amount: amt, date: today, note: depNote }, ...g.deposits],
-    } : g));
+    // 1. Add deposit to goal — atomic remove old + add new on cloud.
+    const oldGoal = goals.find(g => g.id === goalId);
+    if (oldGoal) {
+      const newGoal = { ...oldGoal, deposits: [{ id: 's_' + uuid(), amount: amt, date: today, note: depNote }, ...oldGoal.deposits] };
+      setGoals(prev => prev.map(g => g.id === goalId ? newGoal : g));
+      if (currentUser?.uid) updateSavingsGoalInCloud(currentUser.uid, oldGoal, newGoal);
+
+      // Event-driven milestone notification — fires if this deposit pushed
+      // the goal's % across a 25/50/75/100 threshold. Only if user has
+      // opted in (handled inside the helper).
+      const prevTotal = oldGoal.deposits.reduce((s, d) => s + d.amount, 0);
+      const newTotal  = newGoal.deposits.reduce((s, d) => s + d.amount, 0);
+      import('../../utils/notificationScheduler').then(({ maybeFireMilestoneNotification }) => {
+        maybeFireMilestoneNotification({
+          uid: currentUser?.uid,
+          goalLabel: oldGoal.label,
+          prevTotal,
+          newTotal,
+          target: oldGoal.target,
+        });
+      }).catch(() => {});
+    }
 
     // 2. Auto-create expense transaction (shows in Transactions screen)
     if (onAddTransaction) {
@@ -133,10 +151,12 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
     const goal = goals.find(g => g.id === goalId);
     const dep = goal?.deposits.find(d => d.id === depId);
 
-    setGoals(prev => prev.map(g => g.id === goalId ? {
-      ...g,
-      deposits: g.deposits.filter(d => d.id !== depId),
-    } : g));
+    const oldGoal2 = goals.find(g => g.id === goalId);
+    if (oldGoal2) {
+      const newGoal2 = { ...oldGoal2, deposits: oldGoal2.deposits.filter(d => d.id !== depId) };
+      setGoals(prev => prev.map(g => g.id === goalId ? newGoal2 : g));
+      if (currentUser?.uid) updateSavingsGoalInCloud(currentUser.uid, oldGoal2, newGoal2);
+    }
 
     // Remove the matching expense transaction
     if (dep && onDeleteTransaction) {
@@ -151,7 +171,7 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
   function addNewGoal() {
     if (!newGoalLabel.trim()) return;
     const target = parseFloat(newGoalTarget.replace(/,/g, '')) || 0;
-    setGoals(prev => [...prev, {
+    const newGoal = {
       id: 'g_' + uuid(),
       label: newGoalLabel.trim(),
       target,
@@ -160,25 +180,36 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
       deadline: newGoalDeadline || null,
       archived: false,
       deposits: [],
-    }]);
+    };
+    setGoals(prev => [...prev, newGoal]);
+    if (currentUser?.uid) addSavingsGoalToCloud(currentUser.uid, newGoal);
     setNewGoalLabel(''); setNewGoalTarget(''); setNewGoalColor('#10B981');
     setNewGoalEmoji('🎯'); setNewGoalDeadline(''); setShowNewGoal(false);
   }
 
   function archiveGoal(goalId) {
-    setGoals(prev => prev.map(g => g.id === goalId ? { ...g, archived: true } : g));
+    const oldGoal = goals.find(g => g.id === goalId);
+    if (!oldGoal) return;
+    const newGoal = { ...oldGoal, archived: true };
+    setGoals(prev => prev.map(g => g.id === goalId ? newGoal : g));
+    if (currentUser?.uid) updateSavingsGoalInCloud(currentUser.uid, oldGoal, newGoal);
     if (expandedGoal === goalId) setExpandedGoal(null);
   }
 
   function restoreGoal(goalId) {
-    setGoals(prev => prev.map(g => g.id === goalId ? { ...g, archived: false } : g));
+    const oldGoal = goals.find(g => g.id === goalId);
+    if (!oldGoal) return;
+    const newGoal = { ...oldGoal, archived: false };
+    setGoals(prev => prev.map(g => g.id === goalId ? newGoal : g));
+    if (currentUser?.uid) updateSavingsGoalInCloud(currentUser.uid, oldGoal, newGoal);
   }
 
   const [confirmDeleteGoal, setConfirmDeleteGoal] = useState(null);
 
   function deleteGoal(goalId) {
-
+    const goal = goals.find(g => g.id === goalId);
     setGoals(prev => prev.filter(g => g.id !== goalId));
+    if (currentUser?.uid && goal) removeSavingsGoalFromCloud(currentUser.uid, goal);
     if (expandedGoal === goalId) setExpandedGoal(null);
     setConfirmDeleteGoal(null);
   }
@@ -648,7 +679,7 @@ export default function MyFinances({ onClose, transactions, currentUser, currenc
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 7 }}>Target Date (optional)</div>
                 <input type="date" value={newGoalDeadline} onChange={e => setNewGoalDeadline(e.target.value)}
-                  min={new Date().toISOString().slice(0, 10)} className="form-input" style={{ fontSize: 15 }} />
+                  min={todayLocal()} className="form-input" style={{ fontSize: 15 }} />
               </div>
 
               {/* Color */}

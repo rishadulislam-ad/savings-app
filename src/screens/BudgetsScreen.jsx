@@ -112,6 +112,7 @@ function AddCategorySheet({ onAdd, onClose }) {
 
   return (
     <div
+      data-kb-push
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
@@ -120,6 +121,7 @@ function AddCategorySheet({ onAdd, onClose }) {
       }}
     >
       <div
+        data-keyboard-scroll
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%',
@@ -127,7 +129,7 @@ function AddCategorySheet({ onAdd, onClose }) {
           padding: '0 20px 36px', zIndex: 101,
           animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
           boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
-          maxHeight: '90%', overflowY: 'auto',
+          maxHeight: '90dvh', overflowY: 'auto',
         }}
       >
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 20px' }}/>

@@ -40,6 +40,7 @@ export default function CategoriesTagsSheet({ onClose, customCategories, customT
 
   return (
     <div
+      data-kb-push
       onClick={onClose}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
@@ -48,11 +49,12 @@ export default function CategoriesTagsSheet({ onClose, customCategories, customT
       }}
     >
       <div
+        data-keyboard-scroll
         onClick={e => e.stopPropagation()}
         style={{
           width: '100%', background: 'var(--surface)',
           borderRadius: '22px 22px 0 0', padding: '0 20px 48px',
-          maxHeight: '88%', overflowY: 'auto',
+          maxHeight: '88dvh', overflowY: 'auto',
           animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
           boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
         }}

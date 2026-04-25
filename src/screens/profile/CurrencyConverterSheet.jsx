@@ -1,5 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { formatCurrency, CURRENCIES } from '../../data/transactions';
+import { todayLocal } from '../../utils/date';
 import FeatureTip from '../../components/FeatureTip';
 import { lightTap, successTap } from '../../utils/haptics';
 
@@ -28,10 +29,11 @@ function ConvAddSheet({ addSheetType, fromCur, toCur, exchangeRate, convertedAmo
   const [note, setNote] = useState(`Rate: 1 ${fromCur} = ${exchangeRate?.toFixed(4)} ${toCur}`);
   const convAmt = Math.round(convertedAmount * 100) / 100;
   const toInfo = CURRENCIES.find(c => c.code === toCur) || CURRENCIES[0];
+  const addBackdrop = useBackdropDismiss(onCancel);
 
   return (
-    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', animation: 'fadeIn 0.25s ease both' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: '0 20px 40px', maxHeight: '90%', overflowY: 'auto', animation: 'slideUp 0.4s cubic-bezier(0.32,0.72,0,1) both' }}>
+    <div data-kb-push {...addBackdrop} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1100, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', animation: 'fadeIn 0.25s ease both' }}>
+      <div data-keyboard-scroll onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: '0 20px 40px', maxHeight: '90dvh', overflowY: 'auto', animation: 'slideUp 0.4s cubic-bezier(0.32,0.72,0,1) both' }}>
         <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--text-tertiary)', margin: '12px auto 20px', opacity: 0.4 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>Add Transaction</div>
@@ -48,10 +50,23 @@ function ConvAddSheet({ addSheetType, fromCur, toCur, exchangeRate, convertedAmo
         <div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: 6 }}>Category</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{cats.map(c => (<div key={c.id} onClick={() => { lightTap(); setSelCat(c.id); }} style={{ padding: '8px 14px', borderRadius: 10, cursor: 'pointer', fontSize: 12, fontWeight: 600, background: selCat === c.id ? 'rgba(79,110,247,0.1)' : 'var(--surface2)', border: `1.5px solid ${selCat === c.id ? 'var(--accent)' : 'var(--border)'}`, color: selCat === c.id ? 'var(--accent)' : 'var(--text-secondary)', transition: 'all 0.15s' }}>{c.icon} {c.label}</div>))}</div></div>
         <div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: 6 }}>Date</div><div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--surface2)', border: '1.5px solid var(--border)', color: 'var(--text-secondary)', fontSize: 14 }}>Today, {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div></div>
         <div style={{ marginBottom: 14 }}><div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-tertiary)', marginBottom: 6 }}>Note <span style={{ opacity: 0.5, fontWeight: 400, textTransform: 'none' }}>(optional)</span></div><input type="text" value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note..." style={{ width: '100%', padding: '12px 14px', borderRadius: 12, border: '1.5px solid var(--border)', background: 'var(--surface2)', color: 'var(--text-primary)', fontSize: 14, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} /></div>
-        <button onClick={() => { successTap(); onAddTransaction({ type: addSheetType, amount: convAmt, title: desc.trim() || (cats.find(c => c.id === selCat)?.label || 'Transaction'), category: selCat, wallet: 'main', tags: [], note: note.trim(), date: new Date().toISOString().slice(0, 10) }); onClose(); }} style={{ width: '100%', padding: 15, borderRadius: 14, border: 'none', fontSize: 15, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', marginTop: 4, background: isExp ? 'linear-gradient(135deg, #FF6B6B, #e05555)' : 'linear-gradient(135deg, #34D399, #20b080)', boxShadow: isExp ? '0 4px 16px rgba(255,107,107,0.3)' : '0 4px 16px rgba(52,211,153,0.3)' }}>Save</button>
+        <button onClick={() => { successTap(); onAddTransaction({ type: addSheetType, amount: convAmt, title: desc.trim() || (cats.find(c => c.id === selCat)?.label || 'Transaction'), category: selCat, wallet: 'main', tags: [], note: note.trim(), date: todayLocal() }); onClose(); }} style={{ width: '100%', padding: 15, borderRadius: 14, border: 'none', fontSize: 15, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: 'inherit', marginTop: 4, background: isExp ? 'linear-gradient(135deg, #FF6B6B, #e05555)' : 'linear-gradient(135deg, #34D399, #20b080)', boxShadow: isExp ? '0 4px 16px rgba(255,107,107,0.3)' : '0 4px 16px rgba(52,211,153,0.3)' }}>Save</button>
       </div>
     </div>
   );
+}
+
+// Safe backdrop dismissal — only closes when press-down AND click both happen on the backdrop itself.
+// Prevents keyboard open/close events from dismissing the sheet.
+function useBackdropDismiss(onClose) {
+  const down = useRef(null);
+  return {
+    onPointerDown: (e) => { down.current = e.target; },
+    onClick: (e) => {
+      if (down.current === e.currentTarget && e.target === e.currentTarget) onClose();
+      down.current = null;
+    },
+  };
 }
 
 export default function CurrencyConverterSheet({ onClose, defaultCurrency, onAddTransaction, currentUser }) {
@@ -147,9 +162,11 @@ export default function CurrencyConverterSheet({ onClose, defaultCurrency, onAdd
       c.name.toLowerCase().includes(search.toLowerCase())
     ), [search]);
 
+  const backdropHandlers = useBackdropDismiss(onClose);
   return (
     <div
-      onClick={onClose}
+      data-kb-push
+      {...backdropHandlers}
       style={{
         position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
         zIndex: 900, display: 'flex', alignItems: 'flex-end',
@@ -157,11 +174,13 @@ export default function CurrencyConverterSheet({ onClose, defaultCurrency, onAdd
       }}
     >
       <div
+        data-keyboard-scroll
         onClick={e => e.stopPropagation()}
+        onPointerDown={e => e.stopPropagation()}
         style={{
           width: '100%', background: 'var(--surface)',
           borderRadius: '22px 22px 0 0', padding: '0 20px 44px',
-          maxHeight: '92%', overflowY: 'auto',
+          maxHeight: '92dvh', overflowY: 'auto',
           animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
           boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
         }}
@@ -191,11 +210,14 @@ export default function CurrencyConverterSheet({ onClose, defaultCurrency, onAdd
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 16 }}>🔍</span>
               <input
-                autoFocus
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search currency…"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
                 style={{
                   width: '100%', padding: '10px 12px 10px 38px',
                   borderRadius: 12, border: '1.5px solid var(--border)',

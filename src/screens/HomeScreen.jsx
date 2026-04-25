@@ -5,6 +5,8 @@ import { CATEGORIES, CURRENCIES, formatCurrency, groupByCategory } from '../data
 import { useTheme } from '../context/ThemeContext';
 import { lightTap } from '../utils/haptics';
 import AnimatedNumber from '../components/AnimatedNumber';
+import { generateInsights } from '../utils/insightEngine';
+import { localYMD } from '../utils/date';
 
 const DATE_PERIODS = [
   { id: 'today', label: 'Today' },
@@ -51,7 +53,7 @@ function groupIncomeByCategory(transactions, allCats = CATEGORIES) {
     .sort((a, b) => b.total - a.total);
 }
 
-export default function HomeScreen({ transactions, onEdit, onNavigate, datePeriod, onPeriodChange, currentUser, customCategories }) {
+export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyFinance, datePeriod, onPeriodChange, currentUser, customCategories }) {
   const { currency } = useTheme();
   const [viewMode, setViewMode] = useState('All');
   const [selectedBar, setSelectedBar] = useState(null);
@@ -334,67 +336,16 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
       </div>
 
 
-      {/* Spending Insights */}
-      {(() => {
-        const now = new Date();
-        const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
-        const curCats = {}, prevCats = {};
-        let curIncome = 0, curExpense = 0, prevExpense = 0;
-        transactions.forEach(t => {
-          const m = (t.date || '').slice(0, 7);
-          if (m === curMonth) {
-            if (t.type === 'income') curIncome += t.amount;
-            else { curExpense += t.amount; curCats[t.category] = (curCats[t.category] || 0) + t.amount; }
-          } else if (m === prevMonth && t.type === 'expense') {
-            prevExpense += t.amount; prevCats[t.category] = (prevCats[t.category] || 0) + t.amount;
-          }
-        });
-        const insights = [];
-        if (curIncome > 0) {
-          const rate = Math.round(((curIncome - curExpense) / curIncome) * 100);
-          if (rate > 30) insights.push({ icon: '🎯', text: `You've saved ${rate}% of your income this month — great discipline!`, color: 'var(--success)' });
-          else if (rate > 0) insights.push({ icon: '💡', text: `Savings rate is ${rate}% this month. Aim for 20%+ for a healthy buffer.`, color: '#F59E0B' });
-          else insights.push({ icon: '⚠️', text: `You're spending more than you earn this month. Review your expenses.`, color: 'var(--danger)' });
-        }
-        Object.keys(curCats).forEach(cat => {
-          const cur = curCats[cat], prev = prevCats[cat] || 0;
-          if (prev > 0) {
-            const change = Math.round(((cur - prev) / prev) * 100);
-            const catInfo = allCategories[cat] || { label: cat };
-            if (change > 25) insights.push({ icon: '📈', text: `${catInfo.label} spending is up ${change}% vs last month`, color: 'var(--danger)' });
-            else if (change < -15) insights.push({ icon: '📉', text: `${catInfo.label} spending is down ${Math.abs(change)}% — nice!`, color: 'var(--success)' });
-          }
-        });
-        const topCat = Object.entries(curCats).sort((a, b) => b[1] - a[1])[0];
-        if (topCat) {
-          const catInfo = allCategories[topCat[0]] || { label: topCat[0] };
-          insights.push({ icon: '🏷️', text: `Biggest expense: ${catInfo.label} at ${formatCurrency(topCat[1], currency)}`, color: 'var(--text-secondary)' });
-        }
-        if (prevExpense > 0) {
-          const totalChange = Math.round(((curExpense - prevExpense) / prevExpense) * 100);
-          if (totalChange > 10) insights.push({ icon: '🔔', text: `Overall spending is ${totalChange}% higher than last month`, color: '#F59E0B' });
-          else if (totalChange < -10) insights.push({ icon: '✨', text: `Overall spending is ${Math.abs(totalChange)}% lower than last month!`, color: 'var(--success)' });
-        }
-        if (insights.length === 0) return null;
-        return (
-          <div data-tour="insights" className="card anim-fadeup" style={{ animationDelay: '0.14s', padding: '18px', marginBottom: 16 }}>
-            <div className="section-header" style={{ marginBottom: 12 }}>
-              <span className="section-title">Insights</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>This month</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {insights.slice(0, 4).map((insight, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 10px', borderRadius: 10, background: 'var(--surface2)' }}>
-                  <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{insight.icon}</span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: insight.color, lineHeight: 1.5 }}>{insight.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
+      {/* Smart Insights — small rotating tile. Insights are generated by
+          src/utils/insightEngine.js (forecast, anomaly, recurring, streak,
+          baseline-trend, summary). Whole card taps → opens My Finance. */}
+      <SmartInsightWidget
+        transactions={transactions}
+        currency={currency}
+        allCategories={allCategories}
+        currentUser={currentUser}
+        onOpenMyFinance={onOpenMyFinance}
+      />
 
       {/* Breakdown — Donut + Legend */}
       {breakdownData.length > 0 && (() => {
@@ -457,17 +408,17 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
         const recurring = transactions.filter(t => t.recurring);
         if (recurring.length === 0) return null;
         const today = new Date();
-        const todayStr = today.toISOString().slice(0, 10);
+        const todayStr = localYMD(today);
         const upcoming = recurring.map(t => {
           const lastDate = new Date(t.date);
           let next = new Date(lastDate);
           // Find the next occurrence after today
-          while (next.toISOString().slice(0, 10) <= todayStr) {
+          while (localYMD(next) <= todayStr) {
             if (t.recurFreq === 'weekly') next.setDate(next.getDate() + 7);
             else if (t.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
             else next.setMonth(next.getMonth() + 1);
           }
-          const nextStr = next.toISOString().slice(0, 10);
+          const nextStr = localYMD(next);
           const daysUntil = Math.ceil((next - today) / (1000 * 60 * 60 * 24));
           const cat = allCategories[t.category] || { label: t.category, icon: '📦', color: '#6B7280' };
           return { ...t, nextDate: nextStr, daysUntil, cat };
@@ -665,6 +616,108 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, datePerio
           recent.map(tx => <TransactionItem key={tx.id} tx={tx} onClick={onEdit} customCategories={customCategories} />)
         )}
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   SmartInsightWidget — small Insights tile.
+
+   Shows ONE rule-based insight at a time, picked from a priority list
+   (alert > warning > note > positive). Auto-rotates every 5 seconds when
+   there is more than one. Dot indicator at the bottom. Whole card taps
+   to open the My Finance sheet (App.jsx -> ProfileScreen pendingSheet
+   prop, which survives the tab-switch + remount that a window event
+   would race against).
+   ───────────────────────────────────────────────────────────────────── */
+function SmartInsightWidget({ transactions, currency, allCategories, currentUser, onOpenMyFinance }) {
+  // Show 2–3 insights per "slide". Up to PAGE_SIZE per page; if total is 4
+  // we deliberately split 2+2 instead of 3+1 to avoid a sparse last page.
+  const PAGE_SIZE = 3;
+  const [pageIdx, setPageIdx] = useState(0);
+
+  // Insight generation lives in src/utils/insightEngine.js — pure function
+  // over (transactions, budgets, categories). The widget just consumes the
+  // sorted result and paginates. Pull budgets straight from localStorage so
+  // the per-category overspend/forecast rules can fire even on Home (where
+  // we don't otherwise carry them in state).
+  const insights = useMemo(() => {
+    let budgets = {};
+    try {
+      if (currentUser?.uid) {
+        const raw = localStorage.getItem(`coinova_budgets_${currentUser.uid}`);
+        if (raw) budgets = JSON.parse(raw) || {};
+      }
+    } catch {}
+    return generateInsights({ transactions, currency, allCategories, budgets });
+  }, [transactions, currency, allCategories, currentUser]);
+
+  // Chunk insights into pages of PAGE_SIZE. Special-case 4 total → 2+2
+  // so we don't end up with a sparse 3+1 split.
+  const pages = useMemo(() => {
+    if (insights.length === 0) return [[]];
+    if (insights.length === 4) return [insights.slice(0, 2), insights.slice(2, 4)];
+    const out = [];
+    for (let i = 0; i < insights.length; i += PAGE_SIZE) {
+      out.push(insights.slice(i, i + PAGE_SIZE));
+    }
+    return out;
+  }, [insights]);
+
+  // Reset + auto-rotate the page every 6s when there's more than one page.
+  useEffect(() => {
+    setPageIdx(0);
+    if (pages.length <= 1) return;
+    const t = setInterval(() => setPageIdx(i => (i + 1) % pages.length), 6000);
+    return () => clearInterval(t);
+  }, [pages.length]);
+
+  function handleOpen() {
+    lightTap();
+    if (onOpenMyFinance) onOpenMyFinance();
+  }
+
+  const currentPage = pages[pageIdx] || pages[0] || [];
+
+  return (
+    <div
+      data-tour="insights"
+      onClick={handleOpen}
+      className="card anim-fadeup"
+      role="button"
+      aria-label="Open My Finance for full breakdown"
+      style={{ animationDelay: '0.14s', padding: '14px 16px', marginBottom: 16, cursor: 'pointer' }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span className="section-title" style={{ margin: 0 }}>Smart Insights</span>
+        <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>Open →</span>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {currentPage.map((insight, i) => (
+          <div
+            key={`${pageIdx}-${i}`}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>{insight.icon}</span>
+            <span style={{ fontSize: 12.5, fontWeight: 500, color: insight.color, lineHeight: 1.4 }}>
+              {insight.text}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {pages.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 10 }}>
+          {pages.map((_, i) => (
+            <div key={i} style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: i === pageIdx ? 'var(--accent)' : 'var(--border)',
+              transition: 'background 0.25s ease',
+            }} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

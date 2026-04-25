@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { CURRENCIES } from '../data/transactions';
 import { lightTap, successTap, errorTap } from '../utils/haptics';
 import FeatureTip from '../components/FeatureTip';
-import { saveUserData } from '../utils/firestore';
+import { addTripToCloud, removeTripFromCloud, updateTripInCloud } from '../utils/firestore';
 
 /* ─── Data ──────────────────────────────────────────────────── */
 const DESTINATIONS = [
@@ -242,12 +242,14 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
 
   return (
     <div
+      data-kb-push
       onClick={onClose}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}
     >
       <div
+        data-keyboard-scroll
         onClick={e => e.stopPropagation()}
-        style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', maxHeight: '92%', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.2)' }}
+        style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', maxHeight: '92dvh', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.2)' }}
       >
         <div style={{ padding: '0 20px 48px' }}>
           {/* Handle */}
@@ -642,13 +644,13 @@ function TripBookScreen({ trip, onBack, onUpdate, onDelete }) {
 
       {/* Edit Trip Sheet */}
       {showEditTrip && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end' }}>
+        <div data-kb-push style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end' }}>
           <div onClick={() => setShowEditTrip(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
-          <div onClick={e => e.stopPropagation()} style={{
+          <div data-keyboard-scroll onClick={e => e.stopPropagation()} style={{
             position: 'relative', width: '100%', background: 'var(--surface)',
             borderRadius: '24px 24px 0 0', padding: '16px 20px 34px',
             animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
-            maxHeight: '85%', overflowY: 'auto',
+            maxHeight: '85dvh', overflowY: 'auto',
           }}>
             <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto 20px' }} />
             <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.4px', marginBottom: 20 }}>Edit Trip</div>
@@ -731,8 +733,8 @@ function CreateTripSheet({ onSave, onClose }) {
   const selCurInfo = CURRENCIES.find(c => c.code === currency);
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
-      <div onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', maxHeight: '93%', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)' }}>
+    <div data-kb-push onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 900, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
+      <div data-keyboard-scroll onClick={e => e.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '22px 22px 0 0', maxHeight: '93dvh', overflowY: 'auto', animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both', boxShadow: '0 -8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ padding: '0 20px 44px' }}>
           <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '12px auto 20px' }}/>
 
@@ -945,23 +947,32 @@ export default function TravelTrackerScreen({ currentUser, onBack, registerBackH
     return () => registerBackHandler(null);
   }, [selectedTrip, showCreate, registerBackHandler]);
 
-  function saveTrips(next) {
+  // Local-only persistence helper. Cloud sync is per-trip atomic via the
+  // arrayUnion/arrayRemove helpers below — never bundle trips through
+  // saveUserData (full-array replace would race against another device).
+  function persistTripsLocal(next) {
     setTrips(next);
     localStorage.setItem(key, JSON.stringify(next));
-    if (currentUser?.uid) saveUserData(currentUser.uid, { trips: next });
   }
 
-  function addTrip(trip)    { saveTrips([trip, ...trips]); }
+  function addTrip(trip) {
+    persistTripsLocal([trip, ...trips]);
+    if (currentUser?.uid) addTripToCloud(currentUser.uid, trip);
+  }
 
   function updateTrip(updated) {
+    const oldTrip = trips.find(t => t.id === updated.id);
     const next = trips.map(t => t.id === updated.id ? updated : t);
-    saveTrips(next);
+    persistTripsLocal(next);
+    if (currentUser?.uid && oldTrip) updateTripInCloud(currentUser.uid, oldTrip, updated);
     setSelectedTrip(updated); // keep detail view in sync
   }
 
   function deleteTrip(id) {
     errorTap();
-    saveTrips(trips.filter(t => t.id !== id));
+    const trip = trips.find(t => t.id === id);
+    persistTripsLocal(trips.filter(t => t.id !== id));
+    if (currentUser?.uid && trip) removeTripFromCloud(currentUser.uid, trip);
     setSelectedTrip(null);
   }
 

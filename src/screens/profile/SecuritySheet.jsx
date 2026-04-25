@@ -16,6 +16,16 @@ export default function SecuritySheet({ currentUser, onClose, hasCards = false }
   const [pinEnabled, setPinEnabled] = useState(() => {
     try { return lockKey ? !!localStorage.getItem(lockKey + '_pin') : false; } catch { return false; }
   });
+  // Refresh pinEnabled from hasPin() — covers v4 PINs that live in Keychain
+  // and have no localStorage entry. The lazy initializer above misses those.
+  useEffect(() => {
+    if (!currentUser?.uid) return;
+    let cancelled = false;
+    import('../../utils/hash.js').then(({ hasPin }) => hasPin(currentUser.uid)).then(v => {
+      if (!cancelled) setPinEnabled(v);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentUser?.uid]);
   const [showPinSetup, setShowPinSetup] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinConfirm, setPinConfirm] = useState('');
@@ -64,11 +74,13 @@ export default function SecuritySheet({ currentUser, onClose, hasCards = false }
       setPinConfirm(''); setPinStep('enter'); setPinInput('');
       setMsg('PINs did not match. Try again.'); setMsgType('error'); return;
     }
-    if (lockKey) {
-      import('../../utils/hash.js').then(({ hashPin }) => {
-        hashPin(pinInput, currentUser?.uid || '').then(hashed => {
-          localStorage.setItem(lockKey + '_pin', hashed);
-        });
+    if (lockKey && currentUser?.uid) {
+      // setNewPin generates a fresh random per-user salt and stores both the
+      // hash and the salt — v3 scheme. Old deterministic-salt code path is
+      // gone for new PINs; existing users still verify via verifyPin's
+      // legacy fallback until they unlock once and silently upgrade.
+      import('../../utils/hash.js').then(({ setNewPin }) => {
+        setNewPin(pinInput, currentUser.uid);
       });
     }
     setPinEnabled(true); setShowPinSetup(false); setPinInput(''); setPinConfirm(''); setPinStep('enter');
@@ -88,11 +100,13 @@ export default function SecuritySheet({ currentUser, onClose, hasCards = false }
       return;
     }
     const savedPin = lockKey ? localStorage.getItem(lockKey + '_pin') : null;
-    if (!savedPin) return;
-    const { hashPin } = await import('../../utils/hash.js');
-    const hashed = await hashPin(removePinInput, currentUser?.uid || '');
-    if (hashed === savedPin) {
-      localStorage.removeItem(lockKey + '_pin');
+    // v4 PINs live in Keychain — savedPin from localStorage may be null even
+    // when a PIN exists. verifyPin handles both cases internally.
+    const { verifyPin, wipePin } = await import('../../utils/hash.js');
+    const ok = await verifyPin(removePinInput, currentUser?.uid || '', savedPin);
+    if (ok) {
+      // Wipe ALL PIN material — Keychain entry + legacy/v3 localStorage entries.
+      if (currentUser?.uid) await wipePin(currentUser.uid);
       setPinEnabled(false);
       setShowRemovePinPrompt(false);
       setRemovePinInput('');

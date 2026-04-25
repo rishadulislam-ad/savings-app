@@ -4,6 +4,19 @@ import { CURRENCIES } from '../data/transactions';
 export default function CurrencyPicker({ selected, onSelect, onClose }) {
   const [search, setSearch] = useState('');
   const selecting = useRef(false);
+  const downTarget = useRef(null);
+
+  // Only close when BOTH pointerdown and click happen on the backdrop itself.
+  // Prevents keyboard dismissal or drag-from-sheet from closing the picker.
+  function handleBackdropDown(e) {
+    downTarget.current = e.target;
+  }
+  function handleBackdropClick(e) {
+    if (downTarget.current === e.currentTarget && e.target === e.currentTarget) {
+      onClose();
+    }
+    downTarget.current = null;
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return CURRENCIES;
@@ -33,8 +46,8 @@ export default function CurrencyPicker({ selected, onSelect, onClose }) {
   }
 
   return (
-    <div className="sheet-overlay" onClick={onClose}>
-      <div className="sheet" onClick={e => e.stopPropagation()} style={{ maxHeight: '88%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="sheet-overlay" onPointerDown={handleBackdropDown} onClick={handleBackdropClick}>
+      <div className="sheet" onClick={e => e.stopPropagation()} onPointerDown={e => e.stopPropagation()} style={{ maxHeight: '88dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div className="sheet-handle" />
 
         {/* Header */}
@@ -66,6 +79,10 @@ export default function CurrencyPicker({ selected, onSelect, onClose }) {
             placeholder="Search currency or country..."
             value={search}
             onChange={e => setSearch(e.target.value)}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck="false"
           />
         </div>
 

@@ -8,8 +8,8 @@ import ReportsSheet from './profile/ReportsSheet';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { lightTap, mediumTap, successTap, errorTap, warningTap } from '../utils/haptics';
-import { saveUserData, deleteUserData } from '../utils/firestore';
-import { saveCardSecrets, loadCardSecrets, deleteCardSecrets, hasCardSecrets } from '../utils/cardVault';
+import { saveUserData, deleteUserData, addCardToCloud, removeCardFromCloud } from '../utils/firestore';
+import { saveCardSecrets, loadCardSecrets, deleteCardSecrets, hasCardSecrets, wipeVault } from '../utils/cardVault';
 import { HELP_FAQS } from './profile/helpFaqs';
 import RateSheet from './profile/RateSheet';
 import NotifSheet from './profile/NotifSheet';
@@ -19,7 +19,7 @@ import CurrencyConverterSheet from './profile/CurrencyConverterSheet';
 import CardsSheet from './profile/CardsSheet';
 
 /* ─── Profile Screen ────────────────────────────────────────── */
-export default function ProfileScreen({ transactions, currentUser, onLogout, onNavigate, onAddTransaction, onUpdateUser, customCategories = [], customTags = [], onAddCustomCategory, onDeleteCustomCategory, onAddCustomTag, onDeleteCustomTag, registerBackHandler, resetKey, onReplayTour }) {
+export default function ProfileScreen({ transactions, currentUser, onLogout, onNavigate, onAddTransaction, onUpdateUser, customCategories = [], customTags = [], onAddCustomCategory, onDeleteCustomCategory, onAddCustomTag, onDeleteCustomTag, registerBackHandler, resetKey, pendingSheet, onPendingSheetConsumed, onReplayTour }) {
   const { isDark, toggleTheme, currency, setCurrency } = useTheme();
   const [showCurrencyPicker,  setShowCurrencyPicker]  = useState(false);
   const [showConverter,       setShowConverter]        = useState(false);
@@ -46,6 +46,19 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
   }
   function openSheet(setter) { closeAllSheets(); lightTap(); setter(true); }
 
+  // Deep-link from HomeScreen's Insights widget: open the requested sheet
+  // on mount (or whenever the parent sets a new pending sheet). Prop-based
+  // instead of window-event-based so it survives the tab switch + remount —
+  // the prop is already set when this component first renders.
+  useEffect(() => {
+    if (!pendingSheet) return;
+    if (pendingSheet === 'finances')  openSheet(setShowFinances);
+    else if (pendingSheet === 'reports')   openSheet(setShowReports);
+    else if (pendingSheet === 'cards')     openSheet(setShowCards);
+    else if (pendingSheet === 'security')  openSheet(setShowSecurity);
+    if (onPendingSheetConsumed) onPendingSheetConsumed();
+  }, [pendingSheet]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Delete all data modal state
   const [showDeleteAll, setShowDeleteAll] = useState(false);
   const [deleteAllConfirm, setDeleteAllConfirm] = useState('');
@@ -53,6 +66,20 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
   async function handleDeleteAllData() {
     if (!currentUser?.uid) return;
     errorTap();
+    // Wipe Keychain-stored secrets (card-vault key + PIN hash) BEFORE clearing
+    // localStorage, so we still know the uid to look up the keystore entries.
+    if (currentUser?.uid) {
+      try { await wipeVault(currentUser.uid); } catch {}
+      try {
+        const { wipePin } = await import('../utils/hash.js');
+        await wipePin(currentUser.uid);
+      } catch {}
+    }
+    // Cancel any scheduled notifications so we don't ping a wiped account.
+    try {
+      const { wipeAllNotifications } = await import('../utils/notificationScheduler');
+      await wipeAllNotifications();
+    } catch {}
     // Clear all coinova keys from localStorage
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
@@ -105,7 +132,17 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         // Firebase Auth account behind that the user can't sign back into.
       }
 
-      // 2. Wipe all local data for this user
+      // 2. Wipe all local data for this user, including the OS-keystore
+      //    entries (card-vault key + PIN hash) and scheduled notifications.
+      try { await wipeVault(user.uid); } catch {}
+      try {
+        const { wipePin } = await import('../utils/hash.js');
+        await wipePin(user.uid);
+      } catch {}
+      try {
+        const { wipeAllNotifications } = await import('../utils/notificationScheduler');
+        await wipeAllNotifications();
+      } catch {}
       try {
         const keys = Object.keys(localStorage);
         keys.forEach(key => {
@@ -153,14 +190,22 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
     } catch { return []; }
   });
 
+  // Persist cards to localStorage on every change. NOTE: cards are NOT pushed
+  // to Firestore here — they sync via atomic arrayUnion/arrayRemove operations
+  // inside addCard/deleteCard. Bundling them in saveUserData would replace
+  // the entire `cards` array on every change and race against concurrent
+  // updates from another device (last-write-wins would silently drop cards).
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`coinova_cards_${currentUser.uid}`, JSON.stringify(cards));
-      saveUserData(currentUser.uid, { cards });
     }
   }, [cards, currentUser]);
 
-  // Re-read cards from localStorage when Firestore sync delivers new data from another device
+  // Re-read cards from localStorage on the initial Firestore sync after sign-in
+  // (loadUserData populates localStorage with the cloud's cards on app open).
+  // The realtime subscription deliberately does NOT touch cards (see App.jsx),
+  // so this handler effectively only fires once per session — picking up
+  // changes made on other devices since the last app open.
   useEffect(() => {
     function handleSync() {
       if (!currentUser?.uid) return;
@@ -197,8 +242,25 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
     return () => registerBackHandler(null);
   }, [showCurrencyPicker, showConverter, showCatTags, showCards, showFinances, showReports, showSecurity, showHelp, showNotifications, showRateApp, showYourData, showAccount, editingProfile, registerBackHandler]);
 
-  function addCard(card) { setCards(prev => [...prev, card]); }
-  function deleteCard(id) { setCards(prev => prev.filter(c => c.id !== id)); }
+  // Card mutations use Firestore's atomic array operations (arrayUnion /
+  // arrayRemove). These are race-free across devices: concurrent adds and
+  // deletes from multiple devices merge correctly server-side, and our own
+  // local cache reflects the change synchronously, so the realtime
+  // subscription never delivers stale data that would undo the change.
+  function addCard(card) {
+    setCards(prev => [...prev, card]);
+    if (currentUser?.uid) {
+      addCardToCloud(currentUser.uid, card);
+    }
+  }
+  function deleteCard(id) {
+    const card = cards.find(c => c.id === id);
+    setCards(prev => prev.filter(c => c.id !== id));
+    if (currentUser?.uid) {
+      if (card) removeCardFromCloud(currentUser.uid, card);
+      try { deleteCardSecrets(currentUser.uid, id); } catch {}
+    }
+  }
 
   const totalIncome  = transactions.filter(t => t.type === 'income') .reduce((s, t) => s + t.amount, 0);
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
@@ -526,7 +588,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
 
       {/* Delete All Data Modal */}
       {showDeleteAll && (
-        <div onClick={() => setShowDeleteAll(false)} style={{
+        <div onClick={() => setShowDeleteAll(false)} data-kb-push style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
           zIndex: 1050, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
         }}>
@@ -577,7 +639,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
 
       {/* Delete Account Modal */}
       {showDeleteAccount && (
-        <div onClick={() => deleteAccountStep !== 'deleting' && setShowDeleteAccount(false)} style={{
+        <div data-kb-push onClick={() => deleteAccountStep !== 'deleting' && setShowDeleteAccount(false)} style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
           zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
           animation: 'fadeIn 0.2s ease both',
@@ -920,15 +982,35 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
                 customCategories,
                 customTags,
               };
-              const jsonStr = JSON.stringify(data, null, 2);
-              const fileName = `coinova-backup-${new Date().toISOString().slice(0, 10)}.json`;
+              let jsonStr = JSON.stringify(data, null, 2);
+              // Optional encryption — prompt for a passphrase. Empty/cancelled
+               // means plaintext (current behavior); a typed passphrase wraps
+               // the plaintext in PBKDF2(200k)+AES-GCM-256. Anyone with the
+               // exported file but not the passphrase gets opaque ciphertext.
+              const passphrase = window.prompt('Encrypt this backup with a password?\n\nLeave empty to export as plain JSON, or enter a strong password to encrypt.\n\nIMPORTANT: if you forget this password, the backup CANNOT be recovered.');
+              let isEncrypted = false;
+              if (passphrase && passphrase.length >= 6) {
+                try {
+                  const { encryptBackup } = await import('../utils/backupCrypto');
+                  jsonStr = await encryptBackup(jsonStr, passphrase);
+                  isEncrypted = true;
+                } catch (err) {
+                  alert('Encryption failed. Backup not created.');
+                  return;
+                }
+              } else if (passphrase && passphrase.length > 0 && passphrase.length < 6) {
+                alert('Password too short — must be at least 6 characters. Backup not created.');
+                return;
+              }
+              const fileExt = isEncrypted ? '.json.enc' : '.json';
+              const fileName = `coinova-backup-${new Date().toISOString().slice(0, 10)}${fileExt}`;
               try {
                 const result = await Filesystem.writeFile({
                   path: fileName,
                   data: btoa(new TextEncoder().encode(jsonStr).reduce((s, b) => s + String.fromCharCode(b), '')),
                   directory: Directory.Cache,
                 });
-                await Share.share({ title: 'Coinova Backup', url: result.uri });
+                await Share.share({ title: isEncrypted ? 'Coinova Backup (encrypted)' : 'Coinova Backup', url: result.uri });
                 successTap();
               } catch {
                 const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -960,14 +1042,30 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
               </div>
               <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
-            <input id="restore-file-input-yd" type="file" accept=".json" style={{ display: 'none' }} onChange={(e) => {
+            <input id="restore-file-input-yd" type="file" accept=".json,.enc" style={{ display: 'none' }} onChange={(e) => {
               const file = e.target.files?.[0];
               if (!file || !currentUser) return;
               if (file.size > 5 * 1024 * 1024) { alert('Backup file too large (max 5MB)'); e.target.value = ''; return; }
               const reader = new FileReader();
-              reader.onload = () => {
+              reader.onload = async () => {
                 try {
-                  const data = JSON.parse(reader.result);
+                  let parsed = JSON.parse(reader.result);
+                  // If this is an encrypted backup wrapper, prompt for the
+                  // passphrase and decrypt before treating as a normal backup.
+                  const { isEncryptedBackup, decryptBackup } = await import('../utils/backupCrypto');
+                  if (isEncryptedBackup(parsed)) {
+                    const passphrase = window.prompt('This backup is encrypted. Enter the password used when it was created:');
+                    if (!passphrase) { e.target.value = ''; return; }
+                    try {
+                      const plaintext = await decryptBackup(parsed, passphrase);
+                      parsed = JSON.parse(plaintext);
+                    } catch {
+                      alert('Wrong password, or the backup file has been modified.');
+                      e.target.value = '';
+                      return;
+                    }
+                  }
+                  const data = parsed;
                   if (!data.version || typeof data.version !== 'number') { alert('Invalid backup file format'); return; }
                   if (!Array.isArray(data.transactions)) { alert('Invalid backup: transactions must be an array'); return; }
                   if (data.transactions.length > 50000) { alert('Backup contains too many transactions (max 50,000)'); return; }

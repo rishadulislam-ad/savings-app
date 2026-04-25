@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { localYMD, todayLocal } from '../utils/date';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import TransactionItem from '../components/TransactionItem';
@@ -24,9 +25,11 @@ const DATE_PRESETS = [
 
 function getDateRange(presetId) {
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-
-  const pad = d => d.toISOString().slice(0, 10);
+  // Use local-timezone date strings, not UTC. Date filters MUST match the
+  // user's "today" — toISOString() returns UTC and would shift the date by
+  // one day in negative UTC offsets after evening hours.
+  const todayStr = localYMD(now);
+  const pad = d => localYMD(d);
 
   switch (presetId) {
     case 'today':
@@ -66,7 +69,7 @@ function getDateRange(presetId) {
   }
 }
 
-export default function TransactionsScreen({ transactions, onEdit, onDelete, datePeriod, onPeriodChange, customCategories, currentUser }) {
+export default function TransactionsScreen({ transactions, onEdit, onDelete, onBulkDelete, datePeriod, onPeriodChange, customCategories, currentUser }) {
   const { currency } = useTheme();
   const allCategories = customCategories?.length
     ? { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) }
@@ -80,6 +83,15 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
   const [selectMode, setSelectMode]     = useState(false);
   const [selected, setSelected]         = useState(new Set());
   const [exportToast, setExportToast]   = useState('');
+
+  // While bulk-select is active, mark the body so CSS can hide the
+  // BottomNav. Otherwise the bottom-fixed selection bar collides with the
+  // tab bar at the same screen position and the user never sees it.
+  useEffect(() => {
+    if (selectMode) document.body.classList.add('select-mode');
+    else document.body.classList.remove('select-mode');
+    return () => document.body.classList.remove('select-mode');
+  }, [selectMode]);
 
   function toggleSelect(id) {
     setSelected(prev => {
@@ -96,10 +108,17 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
   }
 
   function handleBulkDelete() {
-    if (!onDelete || selected.size === 0) return;
+    if (selected.size === 0) return;
     errorTap();
     const ids = [...selected];
-    ids.forEach(id => onDelete(id));
+    if (onBulkDelete) {
+      // Single atomic Firestore arrayRemove batch + one undo bucket.
+      onBulkDelete(ids);
+    } else if (onDelete) {
+      // Fallback: per-item delete (keeps the screen functional even without
+      // the batch handler wired up).
+      ids.forEach(id => onDelete(id));
+    }
     exitSelectMode();
   }
 
@@ -191,7 +210,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
     const csvContent = [header, ...rows]
       .map(row => row.map(cell => `"${cell}"`).join(','))
       .join('\n');
-    const fileName = `coinova-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    const fileName = `coinova-transactions-${todayLocal()}.csv`;
 
     try {
       const result = await Filesystem.writeFile({
@@ -429,25 +448,48 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
         )}
       </div>
 
-      {/* Bulk Delete Bottom Bar */}
+      {/* Bulk Delete Bottom Bar — sits above the (now-hidden) BottomNav.
+          z-index 9999 to clear any sheet/overlay; safe-area-inset-bottom
+          padding so the buttons aren't tucked under the home indicator. */}
       {selectMode && selected.size > 0 && (
         <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 999,
-          background: 'var(--surface)', borderTop: '1px solid var(--border)',
-          padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
+          background: 'var(--surface)',
+          borderTop: '1px solid var(--border)',
+          padding: '12px 16px',
+          paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+          display: 'flex', alignItems: 'center', gap: 10,
+          boxShadow: '0 -8px 28px rgba(0,0,0,0.25)',
+          animation: 'slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1) both',
         }}>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', flex: 1 }}>
             {selected.size} selected
           </span>
+          <button
+            onClick={exitSelectMode}
+            style={{
+              background: 'var(--surface2)', color: 'var(--text-secondary)',
+              border: '1px solid var(--border)',
+              borderRadius: 12, padding: '11px 18px', fontWeight: 700,
+              fontSize: 14, cursor: 'pointer',
+            }}
+          >
+            Cancel
+          </button>
           <button
             onClick={handleBulkDelete}
             style={{
               background: 'var(--danger)', color: '#fff', border: 'none',
-              borderRadius: 10, padding: '10px 20px', fontWeight: 700,
+              borderRadius: 12, padding: '11px 22px', fontWeight: 700,
               fontSize: 14, cursor: 'pointer',
+              boxShadow: '0 4px 14px rgba(239,68,68,0.35)',
+              display: 'flex', alignItems: 'center', gap: 6,
             }}
           >
-            Delete All
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+            </svg>
+            Delete {selected.size}
           </button>
         </div>
       )}
@@ -487,7 +529,7 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
                 type="date"
                 value={customTo}
                 min={customFrom}
-                max={new Date().toISOString().slice(0,10)}
+                max={todayLocal()}
                 onChange={e => setCustomTo(e.target.value)}
               />
             </div>
@@ -504,7 +546,8 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, dat
                 ].map(q => {
                   function fill() {
                     const now = new Date();
-                    const pad = d => d.toISOString().slice(0,10);
+                    // Local-timezone YMD — UTC would shift the date in negative offsets.
+                    const pad = d => localYMD(d);
                     let from, to = pad(now);
                     if (q.id === 'month') {
                       from = pad(new Date(now.getFullYear(), now.getMonth(), 1));

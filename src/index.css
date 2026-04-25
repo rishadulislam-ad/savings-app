@@ -153,6 +153,25 @@ body.capacitor, body.capacitor #root, body.capacitor .phone-shell {
   padding-top: 0;
   padding-bottom: 0;
   box-sizing: border-box;
+  /* position: relative so the absolutely-positioned .bottom-nav anchors
+     to this container's bottom (not the document). */
+  position: relative;
+}
+
+/* Height the BottomNav reserves at the bottom of every screen. We use a
+   CSS variable so we can collapse it to 0 when the nav is hidden — that
+   way the screen content reflows to fill the full height instead of
+   leaving a dead band where the (transformed-off) nav used to be.
+   Used by .screen-content (and any other scrollable ancestor) below. */
+:root {
+  --nav-h: calc(60px + env(safe-area-inset-bottom, 8px));
+}
+body:has(.sheet-overlay),
+body:has(.sheet-slide-in),
+body:has([data-kb-push]),
+body.keyboard-open,
+body.select-mode {
+  --nav-h: 0px;
 }
 
 /*
@@ -178,6 +197,13 @@ body.capacitor-ios .safe-top {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
+  /* Reserve room at the bottom for the absolutely-positioned BottomNav so
+     the last items can scroll above it. !important overrides per-screen
+     inline `padding: '20px'` which would otherwise replace this bottom
+     value. Animates with --nav-h so when the nav slides out (keyboard /
+     sheet open), the reserved space collapses in lockstep with the slide. */
+  padding-bottom: var(--nav-h, 0px) !important;
+  transition: padding-bottom 0.28s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .screen-content::-webkit-scrollbar { display: none; }
 
@@ -201,7 +227,13 @@ body.capacitor-ios .safe-top {
   gap: 6px;
 }
 
-/* Bottom Navigation */
+/* Bottom Navigation.
+   position: absolute (not in flex layout) so it never reserves height in
+   .screen. When keyboard / sheet opens and the nav slides out via transform,
+   the freed space is real freed space (not a "transformed but reserved"
+   band). overflow stays visible so the FAB (.fab-container at top: -22px)
+   hangs above the nav as designed. .screen-content reserves bottom padding
+   via the --nav-h variable so scrollable content can scroll past the nav. */
 .bottom-nav {
   background: var(--surface);
   border-top: 1px solid var(--border);
@@ -210,8 +242,19 @@ body.capacitor-ios .safe-top {
   justify-content: space-evenly;
   padding-top: 10px;
   padding-bottom: calc(env(safe-area-inset-bottom, 8px) - 10px);
-  flex-shrink: 0;
-  position: relative;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  /* Smooth slide-out / slide-in. Pure transform + opacity, no layout
+     animation needed (the layout reservation is handled by --nav-h). */
+  transform: translateY(0);
+  opacity: 1;
+  will-change: transform, opacity;
+  transition:
+    transform 0.28s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.2s ease-out;
 }
 .nav-item {
   display: flex;
@@ -292,6 +335,13 @@ body.capacitor-ios .safe-top {
   from { opacity: 0; transform: scale(0.94); }
   to   { opacity: 1; transform: scale(1); }
 }
+/* Quick Add modal entry: subtle drop-in + fade. Centered modal, so a small
+   downward translation reads as "appearing from above" rather than fighting
+   the keyboard's upward motion. */
+@keyframes quickAddIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 @keyframes pulse {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.04); }
@@ -299,17 +349,25 @@ body.capacitor-ios .safe-top {
 
 .anim-fadeup { animation: fadeUp 0.4s ease both; }
 
+/* IMPORTANT: these animations use OPACITY ONLY, no transform.
+   Reason: .screen-enter wraps the active screen, and modal sheets inside it
+   use `position: fixed; inset: 0` to cover the viewport. If this element has
+   any non-`none` transform (even translateX(0) left over from animation-fill-mode: both),
+   it creates a containing block for fixed-position descendants — meaning modals
+   would size relative to .screen-enter (which is sized above BottomNav) instead
+   of the viewport, leaving the BottomNav visible underneath. Opacity-only
+   animations don't create a containing block. */
 @keyframes screenSlide {
-  from { opacity: 0; transform: translateX(18px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .screen-enter {
   animation: screenSlide 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
 }
 
 @keyframes screenSlideUp {
-  from { opacity: 0; transform: translateY(22px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 .screen-enter-up {
   animation: screenSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1) both;
@@ -331,7 +389,10 @@ body.capacitor-ios .safe-top {
   z-index: 900;
   display: flex;
   align-items: flex-end;
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  /* Promote to its own compositor layer so the keyboard slide-in doesn't
+     repaint the backdrop on every frame — eliminates the visible jank. */
+  will-change: opacity;
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
@@ -340,9 +401,61 @@ body.capacitor-ios .safe-top {
   background: var(--surface);
   border-radius: 28px 28px 0 0;
   padding: 16px 20px 34px;
-  animation: slideUp 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-  max-height: 92%;
+  animation: slideUp 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+  /* Cap height so the sheet never extends into the status bar / dynamic island.
+     Leaves a 10pt gap below the safe-area top, matching iOS HIG bottom sheets.
+     !important overrides any inline `maxHeight: '92dvh'` style in JSX so the
+     safe-area cap is always enforced. */
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 10px) !important;
   overflow: hidden;
+  box-sizing: border-box;
+  /* Smooth height re-anchor when the webview resizes (keyboard open/close).
+     iOS keyboard's native curve is ~0.28s ease-in-out spring. */
+  transition: max-height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Keyboard avoidance: Capacitor's Keyboard.resize is set to "native" in
+   capacitor.config.json, which means the native webview itself shrinks when the
+   keyboard opens. That makes dvh, vh, 100%, and `position: fixed; inset: 0`
+   all correctly report the area ABOVE the keyboard — no CSS hacks needed.
+   The :root variable stays for any JS that still reads it. */
+:root { --kb-height: 0px; }
+
+/* Cap inner-sheet height for any inline bottom-modal so the sheet never
+   extends into the status bar / dynamic island. Inline `maxHeight: '92dvh'`
+   styles in JSX would otherwise let the sheet overlap the status bar — this
+   rule overrides them with a safe-area-aware ceiling.
+   Smooth max-height transition matches the iOS keyboard curve so the sheet
+   re-anchors fluidly when keyboard shows/hides. */
+[data-keyboard-scroll] {
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 10px) !important;
+  transition: max-height 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Hide the bottom tab bar whenever a modal sheet is open OR the keyboard is up.
+   Reasons:
+   1. Standard iOS pattern — tab bar is irrelevant while a modal is presented.
+   2. The tab bar otherwise peeks above or covers sheet content (footer,
+      action buttons, etc.) because it's a sibling of the sheet host.
+   3. Covers all three modal types: .sheet-overlay (CurrencyPicker),
+      .sheet-slide-in (full-page profile sub-sheets), and [data-kb-push]
+      (inline bottom modals tagged across the app).
+
+   Use transform + opacity (GPU compositor — no layout thrash) instead of
+   `display: none`. pointer-events: none disables tapping the now-hidden bar. */
+body:has(.sheet-overlay) .bottom-nav,
+body:has(.sheet-slide-in) .bottom-nav,
+body:has([data-kb-push]) .bottom-nav,
+.keyboard-open .bottom-nav,
+body.select-mode .bottom-nav {
+  /* Just slide it off-screen — the layout-reserved height is already
+     released because --nav-h flips to 0 on these triggers (see :root
+     above), so .screen-content reflows into the freed space. No
+     overflow:hidden / max-height:0 hacks (those clipped the FAB which
+     hangs at top: -22px above the nav). */
+  transform: translateY(120%);
+  opacity: 0;
+  pointer-events: none;
 }
 @keyframes slideUp {
   from { transform: translateY(100%); }

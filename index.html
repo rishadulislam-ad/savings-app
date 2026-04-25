@@ -7,8 +7,42 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
-    <!-- Content Security Policy -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://www.gstatic.com; connect-src 'self' https:; frame-src 'self' https://www.google.com; object-src 'none'; base-uri 'self'; form-action 'self';" />
+    <!-- Critical CSS — applies BEFORE the JS bundle (which imports index.css)
+         loads. Without this, html/body use browser-default white during the
+         ~50-150ms between HTML parse and CSS apply, and on warm app opens you
+         see a brief white flash before React paints. Hard-coded to the dark
+         theme color matching capacitor.config.json's ios/android backgroundColor
+         and the SplashScreen backgroundColor — keeps the visual chain
+         (splash → webview → React) the same color end-to-end. -->
+    <style>
+      html, body { margin: 0; padding: 0; background: #0E0F14; color: #E5E7EB; }
+      #root { min-height: 100vh; background: #0E0F14; }
+    </style>
+
+    <!-- Content Security Policy.
+
+         Hardened additions:
+           - worker-src    : the PWA service worker (vite-plugin-pwa) needs
+                              this; without it the SW won't register on a
+                              strict CSP.
+           - manifest-src  : PWA manifest fetching.
+           - connect-src   : added wss: for Firestore realtime listener
+                              (which uses WebSockets) and blob: for File API
+                              reads of restored backups.
+           - frame-ancestors 'none': blocks clickjacking — no other site can
+                              put us in an iframe.
+           - upgrade-insecure-requests: belt-and-suspenders against any
+                              accidental HTTP URL slipping in via a future
+                              dependency; the browser silently rewrites to
+                              HTTPS instead of failing.
+           - img-src https: : avatars are stored as data: URLs but allowing
+                              any HTTPS image is harmless and future-proof
+                              for OG/share images.
+         The 'unsafe-inline' on style-src is required because the app uses
+         inline style={{...}} extensively. The 'unsafe-inline' on script-src
+         is required by vite-plugin-pwa's SW registration shim; eliminating
+         it would need a build-time script-hash CSP which is its own project. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https:; connect-src 'self' https: wss: blob:; frame-src 'self' https://www.google.com; worker-src 'self' blob:; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
 
     <!-- Viewport — mobile optimised, no zoom, safe area for notch/home bar -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />

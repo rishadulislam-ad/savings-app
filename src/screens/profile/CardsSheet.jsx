@@ -84,12 +84,23 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
   const appLockKey = currentUser ? `coinova_app_lock_${currentUser.uid}` : null;
   const pinKey = currentUser ? `coinova_app_lock_${currentUser.uid}_pin` : null;
   const [showSecurityPrompt, setShowSecurityPrompt] = useState(false);
+  // Cached "PIN exists" flag — checked via hasPin() which inspects both the
+  // legacy localStorage entry AND the v4 Keychain entry. We can't call hasPin
+  // synchronously from inside event handlers, so we mirror its result here.
+  const [pinExists, setPinExists] = useState(() => !!(pinKey && localStorage.getItem(pinKey)));
+  useEffect(() => {
+    if (!currentUser?.uid) { setPinExists(false); return; }
+    let cancelled = false;
+    import('../../utils/hash.js').then(({ hasPin }) => hasPin(currentUser.uid)).then(v => {
+      if (!cancelled) setPinExists(v);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentUser?.uid]);
 
   // Security is set up if Face ID OR PIN exists
   function isSecuritySetUp() {
     const hasAppLock = appLockKey && localStorage.getItem(appLockKey) === 'true';
-    const hasPin = pinKey && !!localStorage.getItem(pinKey);
-    return hasAppLock || hasPin;
+    return hasAppLock || pinExists;
   }
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
@@ -99,7 +110,8 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
 
   async function authenticate() {
     const biometricEnabled = appLockKey && localStorage.getItem(appLockKey) === 'true';
-    const pinSet = pinKey && !!localStorage.getItem(pinKey);
+    // pinExists is the cached result of hasPin() (inspects Keychain + localStorage).
+    const pinSet = pinExists;
 
     // Try biometric first if it was explicitly enabled
     if (biometricEnabled) {
@@ -129,9 +141,11 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
   async function handlePinPromptSubmit() {
     if (!currentUser?.uid || pinPromptInput.length < 4) return;
     const savedPin = localStorage.getItem(`coinova_app_lock_${currentUser.uid}_pin`);
-    const { hashPin } = await import('../../utils/hash.js');
-    const hashed = await hashPin(pinPromptInput, currentUser.uid);
-    if (hashed === savedPin) {
+    const { verifyPin } = await import('../../utils/hash.js');
+    // verifyPin tries v3 (random salt) first, falls back to legacy v1 — works
+    // for both new PINs and existing users not yet migrated.
+    const ok = await verifyPin(pinPromptInput, currentUser.uid, savedPin);
+    if (ok) {
       setShowPinPrompt(false);
       setPinPromptInput('');
       setPinPromptError('');
@@ -173,11 +187,44 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
   }
 
   function copyField(text, fieldKey) {
-    navigator.clipboard.writeText(text.replace(/\s+/g, '')).catch(() => {});
+    const cleaned = text.replace(/\s+/g, '');
+    navigator.clipboard.writeText(cleaned).catch(() => {});
     successTap();
     setCopiedField(fieldKey);
     setTimeout(() => setCopiedField(null), 1500);
+    // Auto-wipe sensitive card secrets from the clipboard. PAN/CVV field
+    // keys start with `num_`/`cvv_`; cardholder and expiry are skipped
+    // because clobbering the user's clipboard for them would be hostile.
+    if (fieldKey?.startsWith('num_') || fieldKey?.startsWith('cvv_')) {
+      pendingClipboardWipe.current = true;
+      // 30s passive wipe.
+      setTimeout(() => {
+        if (!pendingClipboardWipe.current) return;
+        pendingClipboardWipe.current = false;
+        navigator.clipboard.writeText('').catch(() => {});
+      }, 30000);
+    }
   }
+
+  // Backgrounding wipe — if the user switches away to paste in another app,
+  // that's fine, but if iOS suspends our process before the 30s timer
+  // fires, the PAN/CVV could linger in the clipboard until the next reboot.
+  // Wipe immediately on visibility change / pagehide as a backstop.
+  const pendingClipboardWipe = useRef(false);
+  useEffect(() => {
+    function wipeIfPending() {
+      if (!pendingClipboardWipe.current) return;
+      pendingClipboardWipe.current = false;
+      try { navigator.clipboard.writeText(''); } catch {}
+    }
+    function onVis() { if (document.visibilityState === 'hidden') wipeIfPending(); }
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', wipeIfPending);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pagehide', wipeIfPending);
+    };
+  }, []);
 
   async function revealCard(cardId) {
     if (revealedSecrets[cardId]) {
@@ -217,37 +264,32 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
     setCardExpiry(clean.slice(0, 5));
   }
 
-  function luhnCheck(num) {
-    const digits = num.replace(/\D/g, '');
-    let sum = 0;
-    for (let i = digits.length - 1, alt = false; i >= 0; i--, alt = !alt) {
-      let n = parseInt(digits[i], 10);
-      if (alt) { n *= 2; if (n > 9) n -= 9; }
-      sum += n;
-    }
-    return sum % 10 === 0;
-  }
-
   const rawNumber = cardNumber.replace(/\s/g, '');
-  const canSave = rawNumber.length >= 13 && luhnCheck(rawNumber) && cardName.trim() && cardExpiry.length === 5 && cardCVC.length >= 3;
+  // Only ONE field is required so the card can be identified — either a
+  // name/label OR at least 4 digits of the card number. Everything else
+  // (full number, expiry, CVV) is optional. CVV especially is a sensitive
+  // value many users prefer never to type into any app.
+  const canSave = !!(cardName.trim() || cardLabel.trim() || rawNumber.length >= 4);
 
   function handleSave() {
     if (!canSave) return;
     successTap();
     const cardId = `card_${Date.now()}`;
-    // Save display data (syncs to Firestore)
+    // Save display data (syncs to Firestore — last4 only, NEVER full number/CVV)
     onAddCard({
       id: cardId,
       label: cardLabel.trim() || (cardNetwork.charAt(0).toUpperCase() + cardNetwork.slice(1) + ' Card'),
       name: cardName.trim(),
-      last4: cardNumber.replace(/\D/g, '').slice(-4),
+      last4: rawNumber.slice(-4),
       expiry: cardExpiry,
       network: cardNetwork,
       gradient: cardGradient,
     });
-    // Save full number + CVV encrypted locally (never leaves device)
-    if (currentUser?.uid) {
-      saveCardSecrets(currentUser.uid, cardId, cardNumber.replace(/\D/g, ''), cardCVC);
+    // Save full number + CVV encrypted locally (never leaves device).
+    // Only persist secrets if the user actually provided a full number —
+    // otherwise there's nothing meaningful to encrypt/reveal later.
+    if (currentUser?.uid && rawNumber.length >= 13) {
+      saveCardSecrets(currentUser.uid, cardId, rawNumber, cardCVC);
     }
     setShowAdd(false);
     setCardNumber(''); setCardName('');
@@ -364,22 +406,28 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
                     })()}
                     {(() => {
                       const secrets = revealedSecrets[card.id];
+                      // Handle the case where the user only saved a number (no CVV)
+                      // or saved nothing (last4-only display card).
+                      const cvvSaved = secrets && secrets.cvv && secrets.cvv.length > 0;
+                      const numberSaved = secrets && secrets.number && secrets.number.length > 0;
                       const detailItems = [
                         {
                           label: 'Card Number',
-                          hidden: `\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 ${card.last4 || '\u2022\u2022\u2022\u2022'}`,
-                          revealed: secrets ? secrets.number.replace(/(.{4})/g, '$1 ').trim() : null,
-                          copyValue: secrets?.number,
+                          hidden: card.last4
+                            ? `\u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 \u2022\u2022\u2022\u2022 ${card.last4}`
+                            : 'Not saved',
+                          revealed: numberSaved ? secrets.number.replace(/(.{4})/g, '$1 ').trim() : null,
+                          copyValue: numberSaved ? secrets.number : null,
                           key: `num_${card.id}`,
                           mono: true
                         },
-                        { label: 'Cardholder', hidden: card.name, copyValue: card.name, key: `name_${card.id}` },
-                        { label: 'Expiry Date', hidden: card.expiry, copyValue: card.expiry, key: `exp_${card.id}`, mono: true },
+                        { label: 'Cardholder', hidden: card.name || 'Not saved', copyValue: card.name || null, key: `name_${card.id}` },
+                        { label: 'Expiry Date', hidden: card.expiry || 'Not saved', copyValue: card.expiry || null, key: `exp_${card.id}`, mono: true },
                         {
                           label: 'CVV',
                           hidden: '\u2022\u2022\u2022',
-                          revealed: secrets?.cvv,
-                          copyValue: secrets?.cvv,
+                          revealed: secrets ? (cvvSaved ? secrets.cvv : 'Not saved') : null,
+                          copyValue: cvvSaved ? secrets.cvv : null,
                           key: `cvv_${card.id}`,
                           mono: true
                         },
@@ -434,7 +482,7 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
 
       {/* Security Required Prompt */}
       {showSecurityPrompt && (
-        <div onClick={() => setShowSecurityPrompt(false)} style={{
+        <div data-kb-push onClick={() => setShowSecurityPrompt(false)} style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
           zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
           animation: 'fadeIn 0.2s ease both',
@@ -475,7 +523,7 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
 
       {/* PIN Prompt Modal */}
       {showPinPrompt && (
-        <div onClick={handlePinPromptCancel} style={{
+        <div data-kb-push onClick={handlePinPromptCancel} style={{
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)',
           zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center',
           animation: 'fadeIn 0.2s ease both',
@@ -520,8 +568,8 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
       )}
 
       {showAdd && (
-        <div onClick={() => setShowAdd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', animation: 'fadeIn 0.25s ease both' }}>
-          <div ref={el => { sheetRef.current = el; if (el && !el._entered) { el._entered = true; el.style.transform = 'translateY(100%)'; requestAnimationFrame(() => { el.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)'; el.style.transform = 'translateY(0)'; }); } }} onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: '0 20px 40px', maxHeight: '92%', overflowY: 'auto' }}>
+        <div data-kb-push onClick={() => setShowAdd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center', animation: 'fadeIn 0.25s ease both' }}>
+          <div data-keyboard-scroll ref={el => { sheetRef.current = el; if (el && !el._entered) { el._entered = true; el.style.transform = 'translateY(100%)'; requestAnimationFrame(() => { el.style.transition = 'transform 0.4s cubic-bezier(0.32, 0.72, 0, 1)'; el.style.transform = 'translateY(0)'; }); } }} onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 420, background: 'var(--surface)', borderRadius: '24px 24px 0 0', padding: '0 20px 40px', maxHeight: '92dvh', overflowY: 'auto' }}>
             <div onTouchStart={handleSheetTouchStart} onTouchMove={handleSheetTouchMove} onTouchEnd={handleSheetTouchEnd} style={{ width: '100%', padding: '14px 0 18px', cursor: 'grab', touchAction: 'none' }}>
               <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto', opacity: 0.5 }} />
             </div>
@@ -536,11 +584,14 @@ export default function CardsSheet({ onClose, cards, onAddCard, onDeleteCard, cu
                 }} />
               ))}
             </div>
-            <div className="form-group"><label className="form-label">Card Number</label><input className="form-input" type="text" inputMode="numeric" placeholder="0000 0000 0000 0000" value={cardNumber} onChange={e => handleNumberInput(e.target.value)} maxLength={19} style={{ fontFamily: 'monospace', letterSpacing: 2 }} /></div>
-            <div className="form-group"><label className="form-label">Cardholder Name</label><input className="form-input" type="text" placeholder="YOUR NAME" value={cardName} onChange={e => setCardName(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase', letterSpacing: '0.03em' }} /></div>
+            <div className="form-group"><label className="form-label">Card Number <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></label><input className="form-input" type="text" inputMode="numeric" placeholder="0000 0000 0000 0000" value={cardNumber} onChange={e => handleNumberInput(e.target.value)} maxLength={19} style={{ fontFamily: 'monospace', letterSpacing: 2 }} /></div>
+            <div className="form-group"><label className="form-label">Cardholder Name <span style={{ opacity: 0.5, fontWeight: 400 }}>(optional)</span></label><input className="form-input" type="text" placeholder="YOUR NAME" value={cardName} onChange={e => setCardName(e.target.value.toUpperCase())} style={{ textTransform: 'uppercase', letterSpacing: '0.03em' }} /></div>
             <div style={{ display: 'flex', gap: 12 }}>
-              <div className="form-group" style={{ flex: 1 }}><label className="form-label">Expiry</label><input className="form-input" type="text" inputMode="numeric" placeholder="MM/YY" value={cardExpiry} onChange={e => handleExpiryInput(e.target.value)} maxLength={5} style={{ fontFamily: 'monospace' }} /></div>
-              <div className="form-group" style={{ flex: 1 }}><label className="form-label">CVV</label><input className="form-input" type="password" inputMode="numeric" placeholder="•••" value={cardCVC} onChange={e => setCardCVC(e.target.value.replace(/\D/g, '').slice(0, 4))} maxLength={4} style={{ fontFamily: 'monospace' }} /></div>
+              <div className="form-group" style={{ flex: 1 }}><label className="form-label">Expiry <span style={{ opacity: 0.5, fontWeight: 400 }}>(opt.)</span></label><input className="form-input" type="text" inputMode="numeric" placeholder="MM/YY" value={cardExpiry} onChange={e => handleExpiryInput(e.target.value)} maxLength={5} style={{ fontFamily: 'monospace' }} /></div>
+              <div className="form-group" style={{ flex: 1 }}><label className="form-label">CVV <span style={{ opacity: 0.5, fontWeight: 400 }}>(opt.)</span></label><input className="form-input" type="password" inputMode="numeric" placeholder="•••" value={cardCVC} onChange={e => setCardCVC(e.target.value.replace(/\D/g, '').slice(0, 4))} maxLength={4} style={{ fontFamily: 'monospace' }} /></div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: -8, marginBottom: 16, lineHeight: 1.5, padding: '8px 12px', background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+              <span style={{ color: 'var(--accent)', fontWeight: 600 }}>🔒 Privacy:</span> the full card number and CVV are AES-256 encrypted on this device. The encryption key is stored in the iOS Keychain / Android Keystore — released only to this app. Card secrets never leave your phone or sync to the cloud. Skip any field you don't want to enter.
             </div>
             <div className="form-group"><label className="form-label">Network</label>
               <div style={{ display: 'flex', gap: 8 }}>

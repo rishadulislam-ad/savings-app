@@ -26,8 +26,8 @@
       "style": "Dark"
     },
     "Keyboard": {
-      "resize": "none",
-      "resizeOnFullScreen": false
+      "resize": "native",
+      "resizeOnFullScreen": true
     },
     "SplashScreen": {
       "launchAutoHide": false,

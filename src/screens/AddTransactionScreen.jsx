@@ -3,6 +3,7 @@ import { CATEGORIES, CURRENCIES, WALLETS } from '../data/transactions';
 import { useTheme } from '../context/ThemeContext';
 import { lightTap, successTap, errorTap } from '../utils/haptics';
 import { sanitize } from '../utils/sanitize';
+import { todayLocal } from '../utils/date';
 import { uuid } from '../utils/storage';
 
 const DEFAULT_TAGS = ['Food', 'Work', 'Family', 'Health', 'Fun', 'Travel', 'Bills', 'Gifts'];
@@ -54,7 +55,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
   const [wallet, setWallet] = useState(initialTx?.wallet || 'main');
   const [tags, setTags] = useState(initialTx?.tags || []);
   const [note, setNote] = useState(initialTx?.note || '');
-  const [date, setDate] = useState(initialTx?.date || new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(initialTx?.date || todayLocal());
   const [isRecurring, setIsRecurring] = useState(initialTx?.recurring || false);
   const [recurFreq, setRecurFreq] = useState(initialTx?.recurFreq || 'monthly');
 
@@ -492,6 +493,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
       {/* ── Add Custom Category Sheet ── */}
       {showAddCat && (
         <div
+          data-kb-push
           onClick={() => setShowAddCat(false)}
           style={{
             position: 'absolute', inset: 0,
@@ -501,6 +503,7 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           }}
         >
           <div
+            data-keyboard-scroll
             onClick={e => e.stopPropagation()}
             style={{
               width: '100%', background: 'var(--surface)',

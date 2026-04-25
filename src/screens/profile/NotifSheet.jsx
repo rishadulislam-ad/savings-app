@@ -19,6 +19,20 @@ export default function NotifSheet({ currentUser, isDark, onClose }) {
     }).catch(() => setPermStatus('web'));
   }, []);
 
+  async function rescheduleNow() {
+    // Pull current data straight from localStorage and ask the scheduler to
+    // rebuild the notification queue. force: true bypasses the 5s throttle
+    // so the user gets immediate feedback when they toggle a preference.
+    if (!currentUser?.uid) return;
+    try {
+      const { scheduleAllNotifications } = await import('../../utils/notificationScheduler');
+      const transactions  = JSON.parse(localStorage.getItem(`coinova_transactions_${currentUser.uid}`)  || '[]');
+      const budgets       = JSON.parse(localStorage.getItem(`coinova_budgets_${currentUser.uid}`)       || '{}');
+      const savingsGoals  = JSON.parse(localStorage.getItem(`coinova_savings_goals_${currentUser.uid}`) || '[]');
+      scheduleAllNotifications({ uid: currentUser.uid, transactions, budgets, savingsGoals, force: true });
+    } catch {}
+  }
+
   async function toggle(key) {
     if (!prefs[key]) {
       try {
@@ -32,11 +46,15 @@ export default function NotifSheet({ currentUser, isDark, onClose }) {
       if (storageKey) localStorage.setItem(storageKey, JSON.stringify(updated));
       return updated;
     });
+    // Re-build the notification queue with the new prefs.
+    rescheduleNow();
   }
 
   function updateThreshold(val) {
     setBudgetThreshold(val);
     if (storageKey) localStorage.setItem(storageKey + '_threshold', String(val));
+    // Threshold change → re-evaluate Budget Alerts.
+    rescheduleNow();
   }
 
   const notifOptions = [

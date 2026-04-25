@@ -334,7 +334,7 @@ export default function AuthScreen() {
 
       {/* Forgot Password Sheet */}
       {showReset && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div data-kb-push style={{ position: 'fixed', inset: 0, zIndex: 999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
           <div onClick={() => setShowReset(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} />
           <div style={{
             position: 'relative', width: '100%', maxWidth: 420, padding: '24px 20px 32px',

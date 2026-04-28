@@ -13,10 +13,40 @@ export default function NotifSheet({ currentUser, isDark, onClose }) {
     try { return storageKey ? parseInt(localStorage.getItem(storageKey + '_threshold') || '80') : 80; } catch { return 80; }
   });
 
+  // On open: check permission status. If any toggle is currently ON and
+  // permission hasn't been requested yet, request it now — otherwise the
+  // user's "enabled" toggles are silently broken (default prefs include
+  // 3 toggles ON, but permission was never asked at install time).
+  // Also create the Android notification channel so the OS knows how to
+  // present our notifications (importance, sound, vibration).
   useEffect(() => {
-    import('@capacitor/local-notifications').then(({ LocalNotifications }) => {
-      LocalNotifications.checkPermissions().then(result => setPermStatus(result.display)).catch(() => {});
+    import('@capacitor/local-notifications').then(async ({ LocalNotifications }) => {
+      try {
+        // Define our notification channel for Android 8+. Idempotent — no-op
+        // on iOS, and re-creating an existing channel on Android is fine.
+        await LocalNotifications.createChannel({
+          id: 'coinova-default',
+          name: 'Coinova reminders',
+          description: 'Budget alerts, bill reminders, weekly summary, and savings milestones.',
+          importance: 4, // high
+          visibility: 1, // public
+          vibration: true,
+          sound: null,
+        });
+      } catch {}
+      try {
+        const initial = await LocalNotifications.checkPermissions();
+        setPermStatus(initial.display);
+        const anyEnabled = Object.values(prefs).some(v => v);
+        if (anyEnabled && initial.display !== 'granted' && initial.display !== 'denied') {
+          // 'prompt' / 'prompt-with-rationale' / 'unknown' → ask now.
+          const req = await LocalNotifications.requestPermissions();
+          setPermStatus(req.display);
+          if (req.display === 'granted') rescheduleNow();
+        }
+      } catch {}
     }).catch(() => setPermStatus('web'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function rescheduleNow() {
@@ -56,6 +86,7 @@ export default function NotifSheet({ currentUser, isDark, onClose }) {
     // Threshold change → re-evaluate Budget Alerts.
     rescheduleNow();
   }
+
 
   const notifOptions = [
     { key: 'budgetAlerts', label: 'Budget Alerts', sub: `Alert when spending hits ${budgetThreshold}% of your budget limit`, icon: '📊', hasSlider: true },

@@ -40,6 +40,14 @@ const KEYCHAIN_USER = 'cardvault-key';
 // uid. Avoids re-importing the key on every encrypt/decrypt.
 let _cachedKey = null;
 
+// Track whether we've ever successfully obtained the Keychain/Keystore key
+// for a uid in this process. Once true, a transient Keychain failure on a
+// later call MUST NOT silently fall back to the web localStorage key — that
+// would generate a fresh AES key, fail to decrypt any existing blob, and
+// look like total vault corruption to the user. Better to surface the error
+// and let the caller retry / show "unavailable, try again".
+const _keychainKnownGood = new Set();
+
 // ---------- Hex helpers ----------
 function bytesToHex(bytes) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -107,8 +115,18 @@ async function getVaultKey(uid) {
   if (Capacitor.isNativePlatform?.()) {
     try {
       key = await getOrCreateKeychainKey(uid);
+      _keychainKnownGood.add(uid);
     } catch (err) {
-      console.warn('[CardVault] keystore unavailable, falling back to localStorage key:', err);
+      // If we've previously read this user's key out of the Keychain in this
+      // process, do NOT fall back — generating a fresh web-fallback key would
+      // make every existing card's encrypted blob undecryptable. Throw so
+      // the caller can surface "vault temporarily unavailable" instead of
+      // silently corrupting the read path.
+      if (_keychainKnownGood.has(uid)) {
+        console.warn('[CardVault] keystore previously good but now failing — refusing to degrade:', err);
+        throw err;
+      }
+      console.warn('[CardVault] keystore unavailable on first use, falling back to localStorage key:', err);
     }
   }
   if (!key) {
@@ -208,10 +226,20 @@ export async function loadCardSecrets(uid, cardId) {
     // blob with the v2 key and persist it back. The user never sees the
     // upgrade — same card, same reveal flow, just stronger storage from
     // this point on.
+    //
+    // Await the migration so we know whether it landed; the v1 blob stays
+    // intact on disk if the rewrite fails (next reveal will retry the
+    // migration). Returning the plaintext is safe either way — the worst
+    // case is "v1 blob remains, gets upgraded next time".
     try {
       const pt = await decryptLegacy(uid, blob);
       const parsed = JSON.parse(pt);
-      saveCardSecrets(uid, cardId, parsed.number, parsed.cvv).catch(() => {});
+      try {
+        const ok = await saveCardSecrets(uid, cardId, parsed.number, parsed.cvv);
+        if (!ok) console.warn('[CardVault] v1→v2 migration save returned false; will retry on next reveal');
+      } catch (migErr) {
+        console.warn('[CardVault] v1→v2 migration write threw; v1 blob preserved for retry:', migErr);
+      }
       return parsed;
     } catch (err) {
       console.warn('[CardVault] decrypt failed (v2 and v1 both):', err);

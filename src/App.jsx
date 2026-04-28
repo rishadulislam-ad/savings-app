@@ -16,8 +16,58 @@ import TransactionsScreen from './screens/TransactionsScreen';
 import BudgetsScreen from './screens/BudgetsScreen';
 import ProfileScreen from './screens/ProfileScreen';
 import AuthScreen from './screens/AuthScreen';
-import TravelTrackerScreen from './screens/TravelTrackerScreen';
+import TravelTrackerScreen, { dedupeTripsById } from './screens/TravelTrackerScreen';
 import OnboardingTour, { HOME_TOUR_STEPS } from './components/OnboardingTour';
+
+/**
+ * Group transactions into "recurring chains" — sets of transactions that
+ * are clearly the same logical recurring entry generated at different
+ * times. Two transactions belong to the same chain if they share the
+ * same title + category + amount + recurFreq. Returns a Map keyed by
+ * chain identifier with the chain's transactions sorted newest-first.
+ *
+ * Used by the auto-generator and by the notification scheduler so we
+ * iterate ONE template per chain instead of fanning out over every past
+ * occurrence (which would produce identical reminders/duplicates).
+ *
+ * Skips any chain that contains a member with `recurringStopped: true` —
+ * that's the single-flag "stop recurring" signal set from the edit screen.
+ */
+/**
+ * Build a stable identity key for a recurring-chain member.
+ *
+ * Normalises the user-facing fields (title + category) so that whitespace
+ * variations or accidental capitalisation differences ("Netflix" vs
+ * " netflix ") don't fragment one chain into two — which would let the
+ * "Stop Recurring" flag miss past occurrences and let the bill-reminder
+ * scheduler double-fire for the same charge. Amount uses cent-rounding to
+ * dodge float jitter; freq defaults to monthly.
+ */
+export function recurringChainKey(t) {
+  const title = String(t?.title || '').trim().toLowerCase();
+  const category = String(t?.category || '').trim().toLowerCase();
+  const cents = Math.round((Number(t?.amount) || 0) * 100);
+  const freq = String(t?.recurFreq || 'monthly').trim().toLowerCase();
+  return `${title}|${category}|${cents}|${freq}`;
+}
+
+export function groupRecurringChains(transactions) {
+  const chains = new Map();
+  for (const t of transactions || []) {
+    if (!t || !t.recurring) continue;
+    const key = recurringChainKey(t);
+    if (!chains.has(key)) chains.set(key, []);
+    chains.get(key).push(t);
+  }
+  // Drop chains that the user has explicitly stopped, sort each chain
+  // newest-first so callers can pick the most recent occurrence as the
+  // walk-from anchor.
+  for (const [key, list] of chains) {
+    if (list.some(t => t.recurringStopped)) { chains.delete(key); continue; }
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  }
+  return chains;
+}
 
 /**
  * Newest-first ordering for transactions. We use Firestore's atomic
@@ -30,6 +80,27 @@ import OnboardingTour, { HOME_TOUR_STEPS } from './components/OnboardingTour';
  * createdAt was introduced fall back to 0 — they end up after newer same-day
  * entries, which is fine.
  */
+/**
+ * Merge cloud + local trip arrays by id, keeping whichever side has the
+ * higher `updatedAt` per id. Local-only trips (not yet synced — common
+ * after offline create) are preserved. Cloud-only trips (added on a
+ * different device) flow in cleanly. This is the merge that makes the
+ * subscription handler safe to apply even when the user is mid-edit.
+ */
+function mergeTripsById(cloud, local) {
+  const out = new Map();
+  for (const t of Array.isArray(cloud) ? cloud : []) {
+    if (t && t.id) out.set(t.id, t);
+  }
+  for (const t of Array.isArray(local) ? local : []) {
+    if (!t || !t.id) continue;
+    const existing = out.get(t.id);
+    if (!existing) { out.set(t.id, t); continue; }
+    if ((t.updatedAt || 0) > (existing.updatedAt || 0)) out.set(t.id, t);
+  }
+  return Array.from(out.values());
+}
+
 function sortTxsNewestFirst(txs) {
   if (!Array.isArray(txs)) return [];
   return [...txs].sort((a, b) => {
@@ -367,7 +438,12 @@ function AppInner() {
         if (data.trips !== undefined) {
           const localTrips = safeGetJSON(`coinova_trips_${uid}`, []);
           if (!(Array.isArray(data.trips) && data.trips.length === 0 && localTrips.length > 0)) {
-            safeSetJSON(`coinova_trips_${uid}`, data.trips);
+            // Merge by id so a cloud snapshot that's still missing a
+            // freshly-created offline trip doesn't wipe it from local.
+            // dedupeTripsById then collapses any leftover duplicates from
+            // the legacy arrayUnion/arrayRemove era (newer updatedAt wins).
+            const merged = dedupeTripsById(mergeTripsById(data.trips, localTrips));
+            safeSetJSON(`coinova_trips_${uid}`, merged);
           }
         }
         if (data.currency) localStorage.setItem(`coinova-currency-${uid}`, data.currency);
@@ -406,6 +482,26 @@ function AppInner() {
         const recentlyChanged = (field) =>
           Date.now() - (window.__coinovaLocalChange?.[field] || 0) < PROTECT_MS;
 
+        // Track whether any localStorage entry actually changed so we only
+        // dispatch coinova-data-sync (which wakes TravelTracker, ProfileScreen,
+        // ThemeContext, etc.) when there's real new data for them to re-read.
+        // Unconditional dispatch on every snapshot caused unnecessary re-reads
+        // and wasted CPU — and in some cases caused screens to clobber their
+        // own in-flight state with a stale localStorage value.
+        let didWriteLocal = false;
+        const writeIfChanged = (key, value) => {
+          try {
+            const next = JSON.stringify(value);
+            const prev = localStorage.getItem(key);
+            if (prev === next) return false;
+            localStorage.setItem(key, next);
+            didWriteLocal = true;
+            return true;
+          } catch {
+            return false;
+          }
+        };
+
         // Transactions sync via atomic arrayUnion/arrayRemove ops, so the
         // realtime snapshot is always authoritative — no protection window
         // needed. Still keep the empty-wipe guard as a safety net for the
@@ -438,7 +534,7 @@ function AppInner() {
         if (data.savingsGoals !== undefined && !recentlyChanged('savingsGoals')) {
           const localGoals = safeGetJSON(`coinova_savings_goals_${uid}`, []);
           if (!(Array.isArray(data.savingsGoals) && data.savingsGoals.length === 0 && localGoals.length > 0)) {
-            safeSetJSON(`coinova_savings_goals_${uid}`, data.savingsGoals);
+            writeIfChanged(`coinova_savings_goals_${uid}`, data.savingsGoals);
           }
         }
         // Cards: real-time sync. Local mutations on this device go through
@@ -450,18 +546,34 @@ function AppInner() {
         // against. This makes adds and deletes propagate to other devices
         // (and back to this one for confirmation) within a single round-trip.
         if (data.cards !== undefined && Array.isArray(data.cards)) {
-          safeSetJSON(`coinova_cards_${uid}`, data.cards);
+          writeIfChanged(`coinova_cards_${uid}`, data.cards);
         }
-        if (data.budgets !== undefined && !recentlyChanged('budgets')) safeSetJSON(`coinova_budgets_${uid}`, data.budgets);
+        if (data.budgets !== undefined && !recentlyChanged('budgets')) {
+          writeIfChanged(`coinova_budgets_${uid}`, data.budgets);
+        }
         if (data.trips !== undefined && !recentlyChanged('trips')) {
           const localTrips = safeGetJSON(`coinova_trips_${uid}`, []);
           if (!(Array.isArray(data.trips) && data.trips.length === 0 && localTrips.length > 0)) {
-            safeSetJSON(`coinova_trips_${uid}`, data.trips);
+            // Merge by id (newer updatedAt wins) instead of overwriting.
+            // Without this, a cloud snapshot from before the user's
+            // offline create finished syncing would erase the new trip
+            // from local. dedupeTripsById also cleans up any duplicate
+            // entries leaked by the previous arrayUnion/arrayRemove path.
+            const merged = dedupeTripsById(mergeTripsById(data.trips, localTrips));
+            writeIfChanged(`coinova_trips_${uid}`, merged);
           }
         }
-        if (data.currency) localStorage.setItem(`coinova-currency-${uid}`, data.currency);
-        // Signal screens to re-read their data from localStorage (event-based to avoid parent re-render)
-        window.dispatchEvent(new CustomEvent('coinova-data-sync'));
+        if (data.currency) {
+          const key = `coinova-currency-${uid}`;
+          if (localStorage.getItem(key) !== data.currency) {
+            localStorage.setItem(key, data.currency);
+            didWriteLocal = true;
+          }
+        }
+        // Only signal screens to re-read if something actually changed.
+        if (didWriteLocal) {
+          window.dispatchEvent(new CustomEvent('coinova-data-sync'));
+        }
       }
     });
 
@@ -521,39 +633,42 @@ function AppInner() {
     setTransactions(prev => {
       if (prev.length === 0) return prev;
       const today = todayLocal();
-      const recurring = prev.filter(t => t.recurring);
       const newTxs = [];
 
-      recurring.forEach(t => {
-        let lastDate = new Date(t.date);
-        // Generate ALL missed occurrences, not just one
+      // Walk ONCE per chain, anchored on the most-recent existing occurrence.
+      // Old logic iterated every recurring tx and let the title+amount+date
+      // dedupe protect against fan-out — correct but O(N²) and ambiguous if
+      // edits broke the dedupe key. Per-chain is cleaner: one anchor, one walk.
+      const chains = groupRecurringChains(prev);
+      for (const list of chains.values()) {
+        const anchor = list[0]; // newest occurrence in this chain
+        let lastDate = new Date(anchor.date);
         while (true) {
-          let nextDate = new Date(lastDate);
-          if (t.recurFreq === 'weekly') nextDate.setDate(nextDate.getDate() + 7);
-          else if (t.recurFreq === 'yearly') nextDate.setFullYear(nextDate.getFullYear() + 1);
-          else nextDate.setMonth(nextDate.getMonth() + 1);
+          const nextDate = new Date(lastDate);
+          if (anchor.recurFreq === 'weekly')      nextDate.setDate(nextDate.getDate() + 7);
+          else if (anchor.recurFreq === 'yearly') nextDate.setFullYear(nextDate.getFullYear() + 1);
+          else                                    nextDate.setMonth(nextDate.getMonth() + 1);
 
           const nextStr = localYMD(nextDate);
           if (nextStr > today) break;
 
-          const alreadyExists = prev.some(existing =>
-            existing.title === t.title &&
-            existing.category === t.category &&
-            existing.amount === t.amount &&
-            existing.date === nextStr
-          ) || newTxs.some(existing =>
-            existing.title === t.title &&
-            existing.category === t.category &&
-            existing.amount === t.amount &&
-            existing.date === nextStr
+          // Cheap defensive dedupe — handles the case where the chain key
+          // happened to miss an existing entry (e.g. a one-off manual entry
+          // that coincidentally matches title/amount on the right date).
+          const alreadyExists = prev.some(e =>
+            e.title === anchor.title && e.category === anchor.category &&
+            e.amount === anchor.amount && e.date === nextStr
+          ) || newTxs.some(e =>
+            e.title === anchor.title && e.category === anchor.category &&
+            e.amount === anchor.amount && e.date === nextStr
           );
 
           if (!alreadyExists) {
-            newTxs.push({ ...t, id: uuid(), date: nextStr, recurring: true, createdAt: Date.now() });
+            newTxs.push({ ...anchor, id: uuid(), date: nextStr, recurring: true, createdAt: Date.now() });
           }
           lastDate = nextDate;
         }
-      });
+      }
 
       if (newTxs.length > 0) {
         hasLocalChange.current = true;
@@ -564,6 +679,40 @@ function AppInner() {
       return newTxs.length > 0 ? sortTxsNewestFirst([...newTxs, ...prev]) : prev;
     });
   }, [currentUser?.uid]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Stop / Reactivate a recurring chain. Sets (or clears) recurringStopped
+  // on EVERY member of the chain so the UI is consistent across all of
+  // them — opening any member shows either the "stopped" or the "active"
+  // UI depending on the chain's current state. The auto-generator and
+  // notification scheduler also behave consistently because their
+  // chain-grouping check uses the same chain key.
+  function setChainRecurringStopped(tx, stopped) {
+    if (!tx) return;
+    const chainKey = recurringChainKey(tx);
+    const members = transactions.filter(t =>
+      t.recurring && recurringChainKey(t) === chainKey
+    );
+    if (members.length === 0) return;
+    hasLocalChange.current = true;
+    const memberIds = new Set(members.map(m => m.id));
+    setTransactions(prev => prev.map(t => {
+      if (!memberIds.has(t.id)) return t;
+      const next = { ...t };
+      if (stopped) next.recurringStopped = true;
+      else delete next.recurringStopped;
+      return next;
+    }));
+    if (currentUser?.uid) {
+      members.forEach(m => {
+        const nextMember = { ...m };
+        if (stopped) nextMember.recurringStopped = true;
+        else delete nextMember.recurringStopped;
+        updateTransactionInCloud(currentUser.uid, m, nextMember);
+      });
+    }
+  }
+  function handleStopRecurringChain(tx)       { setChainRecurringStopped(tx, true); }
+  function handleReactivateRecurringChain(tx) { setChainRecurringStopped(tx, false); }
 
   function handleSave(tx) {
     hasLocalChange.current = true;
@@ -800,6 +949,8 @@ function AppInner() {
           onClose={handleCloseAdd}
           onSave={handleSave}
           onDelete={handleDelete}
+          onStopRecurringChain={handleStopRecurringChain}
+          onReactivateRecurringChain={handleReactivateRecurringChain}
           initialTx={editingTx}
           customCategories={customCategories}
           customTags={customTags}

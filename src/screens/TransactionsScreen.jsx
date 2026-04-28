@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { localYMD, todayLocal } from '../utils/date';
+import { getWeekStart, startOfWeek } from '../utils/weekStart';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import TransactionItem from '../components/TransactionItem';
@@ -23,7 +24,7 @@ const DATE_PRESETS = [
   { id: 'custom',   label: '📅 Custom' },
 ];
 
-function getDateRange(presetId) {
+function getDateRange(presetId, weekStart = 1) {
   const now = new Date();
   // Use local-timezone date strings, not UTC. Date filters MUST match the
   // user's "today" — toISOString() returns UTC and would shift the date by
@@ -40,9 +41,10 @@ function getDateRange(presetId) {
       return { from: s, to: s };
     }
     case 'week': {
-      const day = now.getDay(); // 0=Sun
-      const mon = new Date(now); mon.setDate(now.getDate() - ((day + 6) % 7));
-      return { from: pad(mon), to: todayStr };
+      // First day of the current week according to the user's preference
+      // (auto-detected from device locale, overridable in Profile).
+      const start = startOfWeek(now, weekStart);
+      return { from: pad(start), to: todayStr };
     }
     case '7days': {
       const d = new Date(now); d.setDate(d.getDate() - 6);
@@ -83,6 +85,20 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, onB
   const [selectMode, setSelectMode]     = useState(false);
   const [selected, setSelected]         = useState(new Set());
   const [exportToast, setExportToast]   = useState('');
+
+  // Week-start preference (auto-detected from device locale, overridable
+  // in Profile). Re-reads on broadcast so changing it elsewhere updates
+  // the "This Week" preset without remounting the screen.
+  const [weekStart, setWeekStartState] = useState(() => getWeekStart(currentUser?.uid));
+  useEffect(() => {
+    function handler() { setWeekStartState(getWeekStart(currentUser?.uid)); }
+    window.addEventListener('coinova-week-start-change', handler);
+    window.addEventListener('coinova-data-sync', handler);
+    return () => {
+      window.removeEventListener('coinova-week-start-change', handler);
+      window.removeEventListener('coinova-data-sync', handler);
+    };
+  }, [currentUser?.uid]);
 
   // While bulk-select is active, mark the body so CSS can hide the
   // BottomNav. Otherwise the bottom-fixed selection bar collides with the
@@ -150,8 +166,8 @@ export default function TransactionsScreen({ transactions, onEdit, onDelete, onB
   const activeRange = useMemo(() => {
     if (datePreset === 'custom') return { from: customFrom, to: customTo };
     if (datePreset === 'all') return null;
-    return getDateRange(datePreset);
-  }, [datePreset, customFrom, customTo]);
+    return getDateRange(datePreset, weekStart);
+  }, [datePreset, customFrom, customTo, weekStart]);
 
   const filtered = useMemo(() => {
     let list = [...transactions].sort((a, b) => new Date(b.date) - new Date(a.date));

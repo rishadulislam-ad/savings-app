@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { db } from '../firebase';
 
 /**
@@ -32,7 +32,19 @@ let _lastKnownCounts = null;
  */
 export async function loadUserData(uid) {
   try {
-    const snap = await getDoc(doc(db, 'users', uid));
+    // Prefer a fresh server read so cross-device changes show up
+    // immediately on app open. The default getDoc() returns whichever
+    // is available first (cache OR server) which can mean we hand back
+    // stale cached data even when the device is online — that's why
+    // iOS sometimes never picked up Android's writes until the user
+    // made a local edit. Fall back to getDoc() (which reads cache) on
+    // any error so offline launches still work.
+    let snap;
+    try {
+      snap = await getDocFromServer(doc(db, 'users', uid));
+    } catch {
+      snap = await getDoc(doc(db, 'users', uid));
+    }
     if (snap.exists()) {
       const data = { ...DEFAULTS, ...snap.data() };
       // Remember what we loaded so we can detect wipes later
@@ -280,27 +292,95 @@ export async function updateSavingsGoalInCloud(uid, oldGoal, newGoal) {
 }
 
 // ---- Trips ----
-export async function addTripToCloud(uid, trip) {
+//
+// Trips do NOT use arrayUnion/arrayRemove. Those primitives dedupe by deep
+// equality of the entire stored object — so as soon as a trip's nested
+// `expenses` array (or any other field) drifts between the queued
+// arrayRemove(oldTrip) and the actual element in the cloud (very common
+// after offline multi-step edits, where each expense add re-queues a
+// remove+union pair against a moving target), the remove silently no-ops
+// and the trip duplicates while expenses get lost.
+//
+// Strategy: read-modify-write the `trips` array, keyed by trip.id. Each
+// mutation pulls the current cloud state (Firestore returns the local
+// cache when offline, so this works without network), splices the array
+// by id, and writes the whole array back. Replay order while offline:
+// each queued updateDoc carries its own snapshot of the array, so the
+// LAST write wins — which matches the user's intent ("the latest local
+// state should be in the cloud").
+//
+// Multi-device safety net: every trip carries its own `updatedAt`
+// timestamp (stamped client-side in TravelTrackerScreen on every
+// mutation), and the App subscription merges cloud+local by id picking
+// the higher `updatedAt`. So if Device A edits trip X while Device B
+// edits trip Y, both edits survive.
+async function readTripsArray(uid) {
+  // Try a server read first so a trip mutation never overwrites the
+  // OTHER device's recent edits with our stale local cache. Fall back to
+  // the cache when offline so offline mutations still work; the next
+  // online write will then carry the latest local state up. Multi-device
+  // safety is further reinforced by mergeTripsById in the App
+  // subscription, which preserves whichever side has the newer
+  // updatedAt per-trip.
   try {
-    await updateDoc(doc(db, 'users', uid), { trips: arrayUnion(trip), updatedAt: serverTimestamp() });
-  } catch (err) {
-    if (err && err.code === 'not-found') {
-      try { await setDoc(doc(db, 'users', uid), { trips: [trip], updatedAt: serverTimestamp() }, { merge: true }); return; } catch {}
+    const snap = await getDocFromServer(doc(db, 'users', uid));
+    if (snap.exists()) {
+      const data = snap.data();
+      return Array.isArray(data?.trips) ? [...data.trips] : [];
     }
+    return [];
+  } catch {
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (!snap.exists()) return [];
+      const data = snap.data();
+      return Array.isArray(data?.trips) ? [...data.trips] : [];
+    } catch {
+      return [];
+    }
+  }
+}
+
+export async function addTripToCloud(uid, trip) {
+  if (!trip || !trip.id) return;
+  try {
+    const trips = await readTripsArray(uid);
+    const idx = trips.findIndex(t => t?.id === trip.id);
+    if (idx >= 0) trips[idx] = trip;
+    else trips.push(trip);
+    try {
+      await updateDoc(doc(db, 'users', uid), { trips, updatedAt: serverTimestamp() });
+    } catch (err) {
+      if (err && err.code === 'not-found') {
+        await setDoc(doc(db, 'users', uid), { trips, updatedAt: serverTimestamp() }, { merge: true });
+        return;
+      }
+      throw err;
+    }
+  } catch (err) {
     console.warn('[Firestore] addTripToCloud failed:', err);
   }
 }
+
 export async function removeTripFromCloud(uid, trip) {
+  if (!trip || !trip.id) return;
   try {
-    await updateDoc(doc(db, 'users', uid), { trips: arrayRemove(trip), updatedAt: serverTimestamp() });
+    const trips = await readTripsArray(uid);
+    const next = trips.filter(t => t?.id !== trip.id);
+    await updateDoc(doc(db, 'users', uid), { trips: next, updatedAt: serverTimestamp() });
   } catch (err) {
     console.warn('[Firestore] removeTripFromCloud failed:', err);
   }
 }
-export async function updateTripInCloud(uid, oldTrip, newTrip) {
+
+export async function updateTripInCloud(uid, _oldTrip, newTrip) {
+  if (!newTrip || !newTrip.id) return;
   try {
-    await updateDoc(doc(db, 'users', uid), { trips: arrayRemove(oldTrip), updatedAt: serverTimestamp() });
-    await updateDoc(doc(db, 'users', uid), { trips: arrayUnion(newTrip), updatedAt: serverTimestamp() });
+    const trips = await readTripsArray(uid);
+    const idx = trips.findIndex(t => t?.id === newTrip.id);
+    if (idx >= 0) trips[idx] = newTrip;
+    else trips.push(newTrip);
+    await updateDoc(doc(db, 'users', uid), { trips, updatedAt: serverTimestamp() });
   } catch (err) {
     console.warn('[Firestore] updateTripInCloud failed:', err);
   }
@@ -356,15 +436,27 @@ export function subscribeToUserData(uid, callback) {
 
   function startListener() {
     try {
-      let isFirstSnapshot = true;
       const unsub = onSnapshot(
         doc(db, 'users', uid),
+        // includeMetadataChanges:false (default) means we only get fired on
+        // ACTUAL data changes — the cached snapshot AND every subsequent
+        // server snapshot. We do NOT skip the first snapshot anymore: when
+        // two devices are both signed into the same account, the very
+        // first snapshot on each device often already carries the other
+        // device's just-pushed write (Firestore merges cache + server
+        // delta into one notification). Skipping it caused iOS to never
+        // see Android's writes (and vice-versa) until the next local
+        // mutation forced a refresh.
+        //
+        // The App subscription handler downstream is idempotent:
+        //   - id-based merge for trips
+        //   - JSON-equality writeIfChanged for localStorage
+        //   - empty-wipe guards for every list
+        //   - 5s local-change protection windows
+        // so re-applying a snapshot that matches the current state is a
+        // no-op, and cross-device deltas always propagate immediately.
         (snap) => {
           retryDelay = 1000;
-          if (isFirstSnapshot) {
-            isFirstSnapshot = false;
-            return;
-          }
           if (snap.exists()) {
             const data = { ...DEFAULTS, ...snap.data() };
             _lastKnownCounts = {

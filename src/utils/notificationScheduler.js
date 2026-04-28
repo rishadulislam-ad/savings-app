@@ -56,10 +56,17 @@ function getPrefs(uid) {
   } catch { return null; }
 }
 
-function nextSundayAt(hour = 18) {
+/**
+ * Next occurrence of `targetDow` (0=Sun … 6=Sat) at `hour:00` local.
+ * Always in the future — if today matches the target, returns next week.
+ * Used by the weekly summary scheduler so we can fire on the user's
+ * preferred end-of-week (Saturday for Sunday-start cultures, Sunday for
+ * Monday-start, Friday for Saturday-start).
+ */
+function nextDowAt(targetDow, hour = 18) {
   const d = new Date();
-  const dow = d.getDay(); // 0=Sun
-  const daysUntil = ((7 - dow) % 7) || 7; // never today — always next Sunday
+  const dow = d.getDay();
+  const daysUntil = ((targetDow - dow + 7) % 7) || 7;
   d.setDate(d.getDate() + daysUntil);
   d.setHours(hour, 0, 0, 0);
   return d;
@@ -132,6 +139,7 @@ export async function scheduleAllNotifications({ uid, transactions = [], budgets
           title: 'Over budget',
           body: `${cat} has exceeded your monthly budget`,
           schedule: { at: fireAt },
+          channelId: 'coinova-default',
         });
       } else if (pct >= prefs.budgetThreshold) {
         out.push({
@@ -139,25 +147,48 @@ export async function scheduleAllNotifications({ uid, transactions = [], budgets
           title: 'Budget alert',
           body: `${cat} spending hit ${Math.round(pct)}% of your monthly budget`,
           schedule: { at: fireAt },
+          channelId: 'coinova-default',
         });
       }
     }
   }
 
   // ── Bill Reminders ── (3 days before next occurrence, 9am local)
+  // Group recurring transactions into chains (by title+category+amount+freq)
+  // and schedule ONE reminder per chain. The previous loop iterated every
+  // recurring tx and computed the same "next occurrence" for each — a chain
+  // with 12 historical occurrences scheduled 12 identical reminders for
+  // the same future date.
   if (prefs.billReminders) {
     const now = Date.now();
+    const chains = new Map();
     for (const t of transactions) {
-      if (!t.recurring || nextId > SCHEDULED_ID_MAX - 10) continue;
+      if (!t || !t.recurring) continue;
+      // Match the chain-key normalisation used in App.recurringChainKey so
+      // bill reminders and the "Stop Recurring" flag operate on the same
+      // grouping (whitespace / case differences would otherwise fragment
+      // a single subscription into multiple chains and double-fire).
+      const title = String(t.title || '').trim().toLowerCase();
+      const category = String(t.category || '').trim().toLowerCase();
+      const cents = Math.round((Number(t.amount) || 0) * 100);
+      const freq = String(t.recurFreq || 'monthly').trim().toLowerCase();
+      const key = `${title}|${category}|${cents}|${freq}`;
+      if (!chains.has(key)) chains.set(key, []);
+      chains.get(key).push(t);
+    }
+    for (const [, list] of chains) {
+      if (list.some(t => t.recurringStopped)) continue;
+      if (nextId > SCHEDULED_ID_MAX - 10) break;
+      // Anchor on the most recent occurrence so we walk forward minimally.
+      const anchor = list.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
       try {
-        const lastDate = new Date(t.date);
+        const lastDate = new Date(anchor.date);
         if (Number.isNaN(lastDate.getTime())) continue;
         let next = new Date(lastDate);
-        // Advance until next occurrence is in the future.
         while (next.getTime() < now) {
-          if (t.recurFreq === 'weekly')      next.setDate(next.getDate() + 7);
-          else if (t.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
-          else                               next.setMonth(next.getMonth() + 1);
+          if (anchor.recurFreq === 'weekly')      next.setDate(next.getDate() + 7);
+          else if (anchor.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
+          else                                    next.setMonth(next.getMonth() + 1);
         }
         const reminder = new Date(next);
         reminder.setDate(reminder.getDate() - 3);
@@ -166,21 +197,35 @@ export async function scheduleAllNotifications({ uid, transactions = [], budgets
           out.push({
             id: nextId++,
             title: 'Upcoming bill',
-            body: `${t.title || t.category} is due in 3 days`,
+            body: `${anchor.title || anchor.category} is due in 3 days`,
             schedule: { at: reminder },
+            channelId: 'coinova-default',
           });
         }
       } catch {}
     }
   }
 
-  // ── Weekly Summary ── (every Sunday 6pm)
+  // ── Weekly Summary ──
+  // Fires on the LAST day of the user's week (one day before the chosen
+  // week-start) at 6pm — so Sunday-start users get it Saturday evening,
+  // Monday-start users get it Sunday evening, Saturday-start users get
+  // it Friday evening. Reads the same weekStart preference the in-app
+  // "This Week" filter uses, so the recap always lines up with the
+  // window the user expects.
   if (prefs.weeklySummary) {
+    let weekStart = 1;
+    try {
+      const mod = await import('./weekStart');
+      weekStart = mod.getWeekStart(uid);
+    } catch {}
+    const endDow = (weekStart + 6) % 7;
     out.push({
       id: nextId++,
       title: 'Weekly summary',
       body: 'Tap to see your spending summary for the week',
-      schedule: { at: nextSundayAt(18), every: 'week' },
+      schedule: { at: nextDowAt(endDow, 18), every: 'week' },
+      channelId: 'coinova-default',
     });
   }
 
@@ -220,7 +265,8 @@ export async function maybeFireMilestoneNotification({ uid, goalLabel, prevTotal
         id: MILESTONE_ID_BASE + Math.floor(Math.random() * 1000),
         title: crossed === 100 ? '🎉 Goal reached!' : `${crossed}% milestone`,
         body: `${goalLabel} is at ${crossed}% of target`,
-        schedule: { at: new Date(Date.now() + 500) },
+        schedule: { at: new Date(Date.now() + 1500) },
+        channelId: 'coinova-default',
       }],
     });
   } catch {}

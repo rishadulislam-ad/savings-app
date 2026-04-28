@@ -69,8 +69,15 @@ export function detectRecurring(txs) {
     groups.get(k).push(t);
   }
 
+  // Cap individual subscription detection to amounts that plausibly
+  // represent a subscription. Rent, mortgage, payroll-style entries
+  // would otherwise dominate the monthly total and produce nonsensical
+  // "subscription" claims like "$21,650/mo".
+  const SUBSCRIPTION_AMOUNT_CAP = 500;
+
   let totalMonthly = 0;
   let count = 0;
+  const items = []; // [{ name, monthlyCost }] for richer UI display
   for (const group of groups.values()) {
     if (group.length < 3) continue;
     const ts = group.map(t => safeDateMs(t.date)).filter(Number.isFinite).sort((a, b) => a - b);
@@ -78,15 +85,17 @@ export function detectRecurring(txs) {
     const gaps = [];
     for (let i = 1; i < ts.length; i++) gaps.push((ts[i] - ts[i - 1]) / MS_PER_DAY);
     const avgGap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
-    if (avgGap >= 28 && avgGap <= 35) {
-      totalMonthly += group[0].amount;
-      count++;
-    } else if (avgGap >= 5 && avgGap <= 9) {
-      totalMonthly += group[0].amount * 4.33;
-      count++;
-    }
+    const amt = group[0].amount;
+    if (amt > SUBSCRIPTION_AMOUNT_CAP) continue; // skip rent / mortgage / large bills
+    let monthlyCost = 0;
+    if (avgGap >= 28 && avgGap <= 35) monthlyCost = amt;
+    else if (avgGap >= 5 && avgGap <= 9) monthlyCost = amt * 4.33;
+    else continue;
+    totalMonthly += monthlyCost;
+    count++;
+    items.push({ name: group[0].title || group[0].note || group[0].category || 'Recurring', monthlyCost });
   }
-  return { count, totalMonthly };
+  return { count, totalMonthly, items };
 }
 
 /**
@@ -274,14 +283,22 @@ export function generateInsights({ transactions, currency = 'USD', allCategories
     }
   }
 
-  // ── RECURRING (70): subscription detection ───────────────────────────
+  // ── RECURRING (70): subscription-like patterns ──────────────────────
+  // Surface the actual detected names instead of just a count, so the
+  // user immediately knows what was flagged. Wording is "recurring
+  // charge(s)" — more accurate than "subscription" since the engine
+  // can't distinguish a real subscription from any other monthly bill.
   const recurring = detectRecurring(last90Txs);
-  if (recurring.count >= 1 && recurring.totalMonthly > 0) {
+  if (recurring.count >= 1 && recurring.totalMonthly > 0 && recurring.items?.length) {
+    const sample = recurring.items[0].name;
+    const text = recurring.count === 1
+      ? `${sample} looks like a recurring charge ≈ ${formatCurrency(recurring.totalMonthly, currency)}/mo`
+      : `${recurring.count} recurring charges (${sample} + ${recurring.count - 1} more) ≈ ${formatCurrency(recurring.totalMonthly, currency)}/mo`;
     out.push({
       id: 'subscriptions',
       priority: 70,
       icon: '🔁',
-      text: `${recurring.count} active subscription${recurring.count === 1 ? '' : 's'} ≈ ${formatCurrency(recurring.totalMonthly, currency)}/mo`,
+      text,
       color: 'var(--text-secondary)',
       category: 'recurring',
     });

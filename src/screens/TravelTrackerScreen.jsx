@@ -3,6 +3,7 @@ import { CURRENCIES } from '../data/transactions';
 import { lightTap, successTap, errorTap } from '../utils/haptics';
 import FeatureTip from '../components/FeatureTip';
 import { addTripToCloud, removeTripFromCloud, updateTripInCloud } from '../utils/firestore';
+import { todayLocal } from '../utils/date';
 
 /* ─── Data ──────────────────────────────────────────────────── */
 const DESTINATIONS = [
@@ -98,6 +99,33 @@ function tripDays(startDate, endDate) {
   const s = new Date(startDate + 'T00:00:00');
   const e = endDate ? new Date(endDate + 'T00:00:00') : new Date();
   return Math.max(1, Math.round((e - s) / 86400000) + 1);
+}
+
+/**
+ * Collapse trips that share an id, keeping the version with the highest
+ * updatedAt (or, if tied, the one with the most expenses — a heuristic for
+ * "more recent edits"). Defensive cleanup for any user whose cloud array
+ * still carries duplicates from the previous arrayUnion/arrayRemove
+ * implementation, where deep-equality drift could leave two records for
+ * the same trip with diverging expense lists.
+ */
+export function dedupeTripsById(list) {
+  if (!Array.isArray(list)) return [];
+  const map = new Map();
+  for (const t of list) {
+    if (!t || !t.id) continue;
+    const existing = map.get(t.id);
+    if (!existing) { map.set(t.id, t); continue; }
+    const a = existing.updatedAt || 0;
+    const b = t.updatedAt || 0;
+    if (b > a) { map.set(t.id, t); continue; }
+    if (b === a) {
+      const aN = (existing.expenses?.length || 0);
+      const bN = (t.expenses?.length || 0);
+      if (bN > aN) map.set(t.id, t);
+    }
+  }
+  return Array.from(map.values());
 }
 
 function fmtMoney(amount, symbol) {
@@ -221,7 +249,12 @@ function AddExpenseSheet({ trip, onSave, onClose, initialExpense }) {
   const [amount,  setAmount]  = useState(isEdit ? String(initialExpense.amount) : '');
   const [catKey,  setCatKey]  = useState(isEdit ? initialExpense.category : 'food');
   const [note,    setNote]    = useState(isEdit ? initialExpense.note : '');
-  const [date,    setDate]    = useState(isEdit ? initialExpense.date : new Date().toISOString().split('T')[0]);
+  // Default to the user's LOCAL today, not UTC. `toISOString().split('T')[0]`
+  // returns the UTC date — east of UTC, opening the sheet between midnight
+  // and ~6am local would pre-select yesterday. todayLocal() uses
+  // getFullYear/getMonth/getDate so the picker always shows the user's
+  // actual today.
+  const [date,    setDate]    = useState(isEdit ? initialExpense.date : todayLocal());
 
   const isValid = parseFloat(amount) > 0;
   const sym     = getCurrencySymbol(trip.currency);
@@ -920,17 +953,29 @@ export default function TravelTrackerScreen({ currentUser, onBack, registerBackH
   const key = currentUser ? `coinova_trips_${currentUser.uid}` : 'coinova_trips_guest';
 
   const [trips,        setTrips]        = useState(() => {
-    try { const s = localStorage.getItem(key); return s ? JSON.parse(s) : []; } catch { return []; }
+    try { const s = localStorage.getItem(key); return s ? dedupeTripsById(JSON.parse(s)) : []; } catch { return []; }
   });
   const [showCreate,   setShowCreate]   = useState(false);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  // Re-read trips from localStorage when Firestore sync delivers new data from another device
+  // Re-read trips from localStorage on Firestore sync events. SKIP during
+  // the local-change protection window so a stale snapshot (typical when
+  // offline — the subscription fires from cache before our setDoc reflects
+  // the new trip) can't undo a just-added or just-deleted trip.
+  //
+  // De-duplicate by id as a defensive safety net. Older builds used
+  // arrayUnion/arrayRemove for trips, which could leak duplicates when
+  // offline edits raced with the deep-equality dedup. If any user is
+  // recovering from that state, this collapse-on-read presents a clean
+  // list (newest `updatedAt` wins) and the next mutation flushes the
+  // collapsed array back to the cloud.
   useEffect(() => {
     function handleSync() {
+      const lastLocal = window.__coinovaLocalChange?.trips || 0;
+      if (Date.now() - lastLocal < 5000) return;
       try {
         const saved = localStorage.getItem(key);
-        if (saved) setTrips(JSON.parse(saved));
+        if (saved) setTrips(dedupeTripsById(JSON.parse(saved)));
       } catch {}
     }
     window.addEventListener('coinova-data-sync', handleSync);
@@ -955,21 +1000,47 @@ export default function TravelTrackerScreen({ currentUser, onBack, registerBackH
     localStorage.setItem(key, JSON.stringify(next));
   }
 
+  // Tell App.jsx's Firestore subscription to ignore remote `trips` updates
+  // for the next few seconds. Without this, a stale cache snapshot fired
+  // by the Firestore SDK before our own write has reflected (very common
+  // when offline) would overwrite our local just-added/deleted trip.
+  function markTripsLocalChange() {
+    if (typeof window !== 'undefined') {
+      window.__coinovaLocalChange = window.__coinovaLocalChange || {};
+      window.__coinovaLocalChange.trips = Date.now();
+    }
+  }
+
+  // Stamp `updatedAt` (client clock, ms) on every mutation. Two purposes:
+  //   1. Lets the App subscription merge cloud+local by id (newer wins) so
+  //      multi-device edits never overwrite each other.
+  //   2. Lets dedupeTripsById collapse any leftover duplicates from the old
+  //      arrayUnion/arrayRemove era — keeping the version with newer edits.
+  function stamp(trip) {
+    return { ...trip, updatedAt: Date.now() };
+  }
+
   function addTrip(trip) {
-    persistTripsLocal([trip, ...trips]);
-    if (currentUser?.uid) addTripToCloud(currentUser.uid, trip);
+    markTripsLocalChange();
+    const stamped = stamp(trip);
+    persistTripsLocal(dedupeTripsById([stamped, ...trips]));
+    if (currentUser?.uid) addTripToCloud(currentUser.uid, stamped);
   }
 
   function updateTrip(updated) {
-    const oldTrip = trips.find(t => t.id === updated.id);
-    const next = trips.map(t => t.id === updated.id ? updated : t);
-    persistTripsLocal(next);
-    if (currentUser?.uid && oldTrip) updateTripInCloud(currentUser.uid, oldTrip, updated);
-    setSelectedTrip(updated); // keep detail view in sync
+    markTripsLocalChange();
+    const stamped = stamp(updated);
+    const next = trips.some(t => t.id === stamped.id)
+      ? trips.map(t => t.id === stamped.id ? stamped : t)
+      : [stamped, ...trips];
+    persistTripsLocal(dedupeTripsById(next));
+    if (currentUser?.uid) updateTripInCloud(currentUser.uid, null, stamped);
+    setSelectedTrip(stamped); // keep detail view in sync
   }
 
   function deleteTrip(id) {
     errorTap();
+    markTripsLocalChange();
     const trip = trips.find(t => t.id === id);
     persistTripsLocal(trips.filter(t => t.id !== id));
     if (currentUser?.uid && trip) removeTripFromCloud(currentUser.uid, trip);

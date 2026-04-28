@@ -5,13 +5,15 @@ import CurrencyPicker from '../components/CurrencyPicker';
 import MyFinances from './profile/MyFinances';
 import ReportsSheet from './profile/ReportsSheet';
 
+import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { lightTap, mediumTap, successTap, errorTap, warningTap } from '../utils/haptics';
 import { saveUserData, deleteUserData, addCardToCloud, removeCardFromCloud } from '../utils/firestore';
+import { todayLocal } from '../utils/date';
+import { getWeekStart, setWeekStart, weekStartLabel } from '../utils/weekStart';
 import { saveCardSecrets, loadCardSecrets, deleteCardSecrets, hasCardSecrets, wipeVault } from '../utils/cardVault';
 import { HELP_FAQS } from './profile/helpFaqs';
-import RateSheet from './profile/RateSheet';
 import NotifSheet from './profile/NotifSheet';
 import SecuritySheet from './profile/SecuritySheet';
 import CategoriesTagsSheet from './profile/CategoriesTagsSheet';
@@ -30,19 +32,28 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
   const [showSecurity,        setShowSecurity]         = useState(false);
   const [showHelp,            setShowHelp]             = useState(false);
   const [showNotifications,   setShowNotifications]    = useState(false);
-  const [showRateApp,         setShowRateApp]          = useState(false);
   const [showYourData,        setShowYourData]         = useState(false);
   const [showAccount,         setShowAccount]          = useState(false);
   const [editingProfile,      setEditingProfile]       = useState(false);
   const [editName,            setEditName]             = useState('');
   const [editAvatar,          setEditAvatar]           = useState('');
+  const [showWeekStartPicker, setShowWeekStartPicker]  = useState(false);
+  // Live-bound to localStorage so the row label updates the moment the
+  // user picks a new value. Listens to the broadcast event so any other
+  // screen could (in future) change it and Profile would still mirror.
+  const [weekStartValue, setWeekStartValue] = useState(() => getWeekStart(currentUser?.uid));
+  useEffect(() => {
+    function refresh() { setWeekStartValue(getWeekStart(currentUser?.uid)); }
+    window.addEventListener('coinova-week-start-change', refresh);
+    return () => window.removeEventListener('coinova-week-start-change', refresh);
+  }, [currentUser?.uid]);
   const AVATARS = ['🧑‍💼','👩‍💻','👨‍🎨','👩‍🔬','🧑‍🚀','👨‍💻','👩‍🎤','🧑‍🍳','👩‍⚕️','🧑‍🎓','👨‍🔧','👩‍🏫','🧑‍💻','👸','🤴','🦸'];
 
   function closeAllSheets() {
     setShowCurrencyPicker(false); setShowConverter(false); setShowCatTags(false);
     setShowCards(false); setShowFinances(false); setShowReports(false);
     setShowSecurity(false); setShowHelp(false); setShowNotifications(false);
-    setShowRateApp(false); setShowYourData(false);
+    setShowYourData(false);
   }
   function openSheet(setter) { closeAllSheets(); lightTap(); setter(true); }
 
@@ -113,14 +124,62 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         return;
       }
 
-      // Re-authenticate if password was provided (email/password users only).
-      // For Google sign-in users we skip this — Firebase usually has a fresh enough
-      // token from the OAuth flow, and if it doesn't, the auth/requires-recent-login
-      // error below will tell the user to sign out and back in.
+      // Re-authenticate before destroying the account.
+      //   - Email/password users: prompt for the password (handled by the
+      //     reauth-step UI). Re-auth via reauthenticateWithCredential.
+      //   - OAuth users (Google / Apple): no password to verify. Without
+      //     friction, anyone with brief access to the unlocked phone could
+      //     delete the account in two taps. Require biometric verification
+      //     (Face ID / Touch ID / fingerprint). Falls back to the existing
+      //     PIN modal in CardsSheet's authenticate() helper if biometric
+      //     isn't available — same pattern used to gate card-vault reveals.
       if (deleteAccountPw && user.email) {
         const { EmailAuthProvider, reauthenticateWithCredential } = await import('firebase/auth');
         const credential = EmailAuthProvider.credential(user.email, deleteAccountPw);
         await reauthenticateWithCredential(user, credential);
+      } else {
+        // OAuth user — require biometric or PIN. If neither is set up on
+        // this device, we still proceed (we can't lock the user out of
+        // their own account-delete entirely just because they never set
+        // up a lock), but at least if they DO have a lock, we honour it.
+        const lockKey = `coinova_app_lock_${user.uid}`;
+        const biometricEnabled = localStorage.getItem(lockKey) === 'true';
+        const { hasPin } = await import('../utils/hash.js');
+        const pinSet = await hasPin(user.uid);
+        if (biometricEnabled || pinSet) {
+          let verified = false;
+          if (biometricEnabled) {
+            try {
+              const { NativeBiometric } = await import('capacitor-native-biometric');
+              await NativeBiometric.verifyIdentity({
+                reason: 'Verify to delete your account',
+                title: 'Delete Coinova account',
+              });
+              verified = true;
+            } catch { /* fall through to PIN if available */ }
+          }
+          if (!verified && pinSet) {
+            const enteredPin = window.prompt('Enter your PIN to confirm account deletion:');
+            if (!enteredPin) {
+              setDeleteAccountError('Cancelled.');
+              setDeleteAccountStep('confirm');
+              return;
+            }
+            const { verifyPin } = await import('../utils/hash.js');
+            const savedPin = localStorage.getItem(`${lockKey}_pin`);
+            verified = await verifyPin(enteredPin, user.uid, savedPin);
+            if (!verified) {
+              setDeleteAccountError('Incorrect PIN. Account not deleted.');
+              setDeleteAccountStep('confirm');
+              return;
+            }
+          }
+          if (!verified) {
+            setDeleteAccountError('Verification failed. Account not deleted.');
+            setDeleteAccountStep('confirm');
+            return;
+          }
+        }
       }
 
       // 1. Delete the Firestore document
@@ -178,7 +237,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
       setShowCurrencyPicker(false); setShowConverter(false); setShowCatTags(false);
       setShowCards(false); setShowFinances(false); setShowReports(false);
       setShowSecurity(false); setShowHelp(false); setShowNotifications(false);
-      setShowRateApp(false); setShowYourData(false); setEditingProfile(false);
+      setShowYourData(false); setEditingProfile(false);
     }
   }, [resetKey]);
 
@@ -226,7 +285,6 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
     registerBackHandler(() => {
       if (showAccount)         { setShowAccount(false); return true; }
       if (showYourData)        { setShowYourData(false); return true; }
-      if (showRateApp)         { setShowRateApp(false); return true; }
       if (showHelp)            { setShowHelp(false); return true; }
       if (showNotifications)   { setShowNotifications(false); return true; }
       if (showSecurity)        { setShowSecurity(false); return true; }
@@ -236,11 +294,12 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
       if (showCatTags)         { setShowCatTags(false); return true; }
       if (showConverter)       { setShowConverter(false); return true; }
       if (showCurrencyPicker)  { setShowCurrencyPicker(false); return true; }
+      if (showWeekStartPicker) { setShowWeekStartPicker(false); return true; }
       if (editingProfile)      { setEditingProfile(false); return true; }
       return false;
     });
     return () => registerBackHandler(null);
-  }, [showCurrencyPicker, showConverter, showCatTags, showCards, showFinances, showReports, showSecurity, showHelp, showNotifications, showRateApp, showYourData, showAccount, editingProfile, registerBackHandler]);
+  }, [showCurrencyPicker, showConverter, showCatTags, showCards, showFinances, showReports, showSecurity, showHelp, showNotifications, showYourData, showAccount, editingProfile, showWeekStartPicker, registerBackHandler]);
 
   // Card mutations use Firestore's atomic array operations (arrayUnion /
   // arrayRemove). These are race-free across devices: concurrent adds and
@@ -429,6 +488,30 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
             </div>
           </div>
 
+          {/* Week Starts On Row */}
+          <div onClick={() => { lightTap(); setShowWeekStartPicker(true); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+            <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(99,102,241,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366F1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>Week starts on</div>
+              <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 1 }}>Affects “This Week” filters &amp; weekly summary</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', background: 'var(--accent-light)', padding: '3px 8px', borderRadius: 8 }}>
+                {weekStartLabel(weekStartValue)}
+              </span>
+              <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
+                <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
+          </div>
+
           {/* Currency Converter Row */}
           <div onClick={() => openSheet(setShowConverter)} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(6,182,212,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -523,8 +606,24 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
             <svg width="7" height="12" viewBox="0 0 7 12" fill="none"><path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
 
-          {/* Rate Coinova */}
-          <div onClick={() => { lightTap(); setShowRateApp(true); }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
+          {/* Rate Coinova — open the platform's store listing directly.
+              The previous version showed an in-app sheet first; users
+              expected this to take them straight to the App Store / Play
+              Store, which is the standard pattern. */}
+          <div onClick={async () => {
+            lightTap();
+            const isIOS = Capacitor?.getPlatform?.() === 'ios';
+            const ua = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+            const url = (isIOS || /iphone|ipad|ipod/i.test(ua))
+              ? 'https://apps.apple.com/us/app/coinova/id6762043129'
+              : 'https://play.google.com/store/apps/details?id=com.coinova.app';
+            try {
+              const { Browser } = await import('@capacitor/browser');
+              await Browser.open({ url });
+            } catch {
+              try { window.open(url, '_blank'); } catch {}
+            }
+          }} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 0', borderBottom: '1px solid var(--border)', cursor: 'pointer' }}>
             <div style={{ width: 38, height: 38, borderRadius: 11, background: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
             </div>
@@ -581,8 +680,18 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
           Delete My Account
         </button>
 
-        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 12, color: 'var(--text-tertiary)' }}>
-          Coinova v1.1 · Made with ❤️
+        {/* Add bottom margin so the floating BottomNav + FAB don't cover
+            this. The FAB sits above the nav and pokes ~28px higher than
+            the nav strip itself, so we need roughly nav-height (62px) +
+            FAB overflow (32px) + safe-area + breathing room. */}
+        <div style={{
+          textAlign: 'center',
+          marginTop: 16,
+          marginBottom: 'calc(120px + env(safe-area-inset-bottom))',
+          fontSize: 12,
+          color: 'var(--text-tertiary)',
+        }}>
+          Coinova v1.2.1 · Made with ❤️
         </div>
       </div>
 
@@ -788,6 +897,73 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         <CurrencyPicker selected={currency} onSelect={setCurrency} onClose={() => setShowCurrencyPicker(false)} />
       )}
 
+      {/* Week-Start Picker Sheet — Sun / Mon / Sat options. Country preference
+          comes from device locale on first launch; this sheet just lets the
+          user override it.
+          Uses .sheet-overlay so the global rule in index.css hides the
+          BottomNav while open (otherwise the FAB + nav bar bleed through
+          and clip the sheet). maxHeight + overflowY keeps the content
+          scrollable on small devices, and the bottom padding adds the
+          iPhone home-indicator safe area. */}
+      {showWeekStartPicker && (
+        <div className="sheet-overlay" onClick={() => setShowWeekStartPicker(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 950, display: 'flex', alignItems: 'flex-end', animation: 'fadeIn 0.2s ease both' }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            width: '100%',
+            background: 'var(--surface)',
+            borderRadius: '22px 22px 0 0',
+            padding: '12px 20px calc(28px + env(safe-area-inset-bottom))',
+            maxHeight: '85dvh',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+            animation: 'slideUp 0.3s cubic-bezier(0.32,0.72,0,1) both',
+            boxShadow: '0 -8px 40px rgba(0,0,0,0.18)',
+          }}>
+            <div style={{ width: 40, height: 4, borderRadius: 2, background: 'var(--border)', margin: '0 auto 16px' }} />
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.4px', marginBottom: 4 }}>Week starts on</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginBottom: 16 }}>
+              Used by the “This Week” filter on Home &amp; Transactions, and by the weekly summary notification.
+            </div>
+            {[
+              { v: 0, label: 'Sunday',   sub: 'US, Canada, Japan, India, Brazil…' },
+              { v: 1, label: 'Monday',   sub: 'UK, Europe, Russia, China, Australia…' },
+              { v: 6, label: 'Saturday', sub: 'Saudi Arabia, UAE, Egypt, Qatar…' },
+            ].map(opt => {
+              const isSel = weekStartValue === opt.v;
+              return (
+                <div
+                  key={opt.v}
+                  onClick={() => {
+                    successTap();
+                    setWeekStart(currentUser?.uid, opt.v);
+                    setWeekStartValue(opt.v);
+                    setShowWeekStartPicker(false);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '14px 14px',
+                    borderRadius: 12,
+                    background: isSel ? 'var(--accent-light)' : 'var(--surface2)',
+                    border: `1.5px solid ${isSel ? 'var(--accent)' : 'transparent'}`,
+                    marginBottom: 8,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>{opt.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 2 }}>{opt.sub}</div>
+                  </div>
+                  {isSel && (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Currency Converter Sheet */}
       {showConverter && (
         <CurrencyConverterSheet
@@ -929,7 +1105,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>App Version</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>Coinova v1.1</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>Coinova v1.2.1</div>
                 </div>
               </div>
             </div>
@@ -1003,7 +1179,7 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
                 return;
               }
               const fileExt = isEncrypted ? '.json.enc' : '.json';
-              const fileName = `coinova-backup-${new Date().toISOString().slice(0, 10)}${fileExt}`;
+              const fileName = `coinova-backup-${todayLocal()}${fileExt}`;
               try {
                 const result = await Filesystem.writeFile({
                   path: fileName,
@@ -1068,20 +1244,32 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
                   const data = parsed;
                   if (!data.version || typeof data.version !== 'number') { alert('Invalid backup file format'); return; }
                   if (!Array.isArray(data.transactions)) { alert('Invalid backup: transactions must be an array'); return; }
-                  if (data.transactions.length > 50000) { alert('Backup contains too many transactions (max 50,000)'); return; }
-                  const validTx = data.transactions.filter(t =>
+                  // Caps below MUST match the Firestore rule limits in
+                  // firestore.rules — otherwise restored data exceeds the
+                  // server-side allowlist and silently fails to sync to
+                  // other devices, leaving the user with local-only data.
+                  // Rule caps: tx<=10000, cards<=50, goals<=100, trips<=500,
+                  // customCategories<=500, customTags<=500.
+                  if (data.transactions.length > 10000) {
+                    alert('Backup contains too many transactions (max 10,000). Older entries will be skipped.');
+                  }
+                  const validTxAll = data.transactions.filter(t =>
                     t && typeof t === 'object' &&
                     typeof t.amount === 'number' && isFinite(t.amount) && t.amount >= 0 &&
                     ['income', 'expense'].includes(t.type) &&
                     typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) &&
                     typeof t.category === 'string' && t.category.length <= 100
                   );
+                  // Newest first, then take the most recent 10000 — matches
+                  // the user's likely intent if they're at the cap.
+                  validTxAll.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                  const validTx = validTxAll.slice(0, 10000);
                   if (validTx.length === 0 && data.transactions.length > 0) { alert('No valid transactions found in backup'); return; }
-                  const validCats = Array.isArray(data.customCategories) ? data.customCategories.filter(c => c && typeof c.id === 'string' && typeof c.label === 'string' && c.label.length <= 50).slice(0, 100) : [];
-                  const validTags = Array.isArray(data.customTags) ? data.customTags.filter(t => typeof t === 'string' && t.length <= 50).slice(0, 200) : [];
-                  const validGoals = Array.isArray(data.savingsGoals) ? data.savingsGoals.filter(g => g && typeof g.label === 'string' && typeof g.target === 'number').slice(0, 50) : [];
+                  const validCats = Array.isArray(data.customCategories) ? data.customCategories.filter(c => c && typeof c.id === 'string' && typeof c.label === 'string' && c.label.length <= 50).slice(0, 500) : [];
+                  const validTags = Array.isArray(data.customTags) ? data.customTags.filter(t => typeof t === 'string' && t.length <= 50).slice(0, 500) : [];
+                  const validGoals = Array.isArray(data.savingsGoals) ? data.savingsGoals.filter(g => g && typeof g.label === 'string' && typeof g.target === 'number').slice(0, 100) : [];
                   const validCards = Array.isArray(data.cards) ? data.cards.filter(c => c && typeof c.id === 'string' && typeof c.last4 === 'string').slice(0, 50) : [];
-                  const validTrips = Array.isArray(data.trips) ? data.trips.filter(t => t && typeof t.id === 'string' && typeof t.name === 'string').slice(0, 50) : [];
+                  const validTrips = Array.isArray(data.trips) ? data.trips.filter(t => t && typeof t.id === 'string' && typeof t.name === 'string').slice(0, 500) : [];
                   const validBudgets = (data.budgets && typeof data.budgets === 'object' && !Array.isArray(data.budgets)) ? data.budgets : {};
                   const validCurrency = (typeof data.currency === 'string' && data.currency.length === 3) ? data.currency : null;
 
@@ -1106,10 +1294,6 @@ export default function ProfileScreen({ transactions, currentUser, onLogout, onN
         </div>
       )}
 
-      {/* Rate App Sheet */}
-      {showRateApp && (
-        <RateSheet currentUser={currentUser} onClose={() => setShowRateApp(false)} />
-      )}
     </div>
   );
 }

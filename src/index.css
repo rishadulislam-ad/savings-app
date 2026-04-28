@@ -91,6 +91,30 @@ body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Native-app text-selection policy — match what iOS/Android system apps do.
+     1. Disable selection by default on UI chrome (labels, buttons, headings,
+        navigation). A user long-pressing the "Profile" tab label or the
+        "$666,238.63" balance number shouldn't trigger the system text-select
+        UI — that's web behavior, not app behavior.
+     2. Disable the iOS callout (the "Copy / Look Up" popover) on long-press.
+     3. Re-enable selection on inputs (so the user can edit text), and on
+        anything tagged .selectable / [data-selectable] (notes, revealed
+        card numbers, anything the user might legitimately want to copy). */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  /* Also disable the grey tap-highlight rectangle that appears on Android
+     when tapping anything — looks unnative. We use our own visual feedback. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Allow text selection inside actual text-entry fields (otherwise the user
+   can't position their cursor / select to delete) and inside elements
+   explicitly marked selectable (notes, revealed card secrets, etc.). */
+input, textarea, [contenteditable="true"], .selectable, [data-selectable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* Mobile / native — full screen, no centering */
@@ -656,6 +680,14 @@ input:focus, textarea:focus {
   scrollbar-width: none;
 }
 .tag-scroll::-webkit-scrollbar { display: none; }
+
+/* Generic helper for any horizontally-scrolling carousel that should
+   not show a visible scrollbar (Smart Insights widget, etc). */
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hide-scrollbar::-webkit-scrollbar { display: none; }
 
 /* Primary Button */
 .btn-primary {

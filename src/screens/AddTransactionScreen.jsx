@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { CATEGORIES, CURRENCIES, WALLETS } from '../data/transactions';
 import { useTheme } from '../context/ThemeContext';
-import { lightTap, successTap, errorTap } from '../utils/haptics';
+import { lightTap, successTap, errorTap, warningTap } from '../utils/haptics';
 import { sanitize } from '../utils/sanitize';
 import { todayLocal } from '../utils/date';
 import { uuid } from '../utils/storage';
@@ -44,7 +44,7 @@ function suggestCategory(text) {
   return bestMatch;
 }
 
-export default function AddTransactionScreen({ onClose, onSave, onDelete, initialTx, customCategories = [], customTags = [], onAddCustomCategory, onAddCustomTag }) {
+export default function AddTransactionScreen({ onClose, onSave, onDelete, onStopRecurringChain, onReactivateRecurringChain, initialTx, customCategories = [], customTags = [], onAddCustomCategory, onAddCustomTag }) {
   const { currency } = useTheme();
   const currencySymbol = (CURRENCIES.find(c => c.code === currency) || CURRENCIES[0]).symbol;
   const isEditing = !!initialTx;
@@ -112,6 +112,13 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
     if (isRecurring) {
       tx.recurring = true;
       tx.recurFreq = recurFreq;
+    }
+    // CRITICAL: preserve the recurringStopped flag if it was set on the
+    // entry being edited. Without this, any edit (e.g. fixing a typo on
+    // the title) would silently strip the flag and reactivate the chain
+    // — because the form state doesn't track recurringStopped at all.
+    if (initialTx?.recurringStopped) {
+      tx.recurringStopped = true;
     }
     onSave(tx);
     onClose();
@@ -345,39 +352,111 @@ export default function AddTransactionScreen({ onClose, onSave, onDelete, initia
           </div>
         </div>
 
-        {/* Recurring Toggle */}
+        {/* Recurring Toggle.
+            Three distinct render modes so the UI is never internally
+            contradictory:
+              1. Stopped chain: just a banner + Reactivate button. No
+                 toggle, no frequency pills, no Stop button.
+              2. Active recurring (editing): toggle ON, frequency pills,
+                 Stop Recurring button.
+              3. Not yet recurring (new tx or edit of one-time entry):
+                 toggle OFF, no pills shown until enabled. */}
         <div className="form-group">
           <label className="form-label">Recurring</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div onClick={() => { lightTap(); setIsRecurring(!isRecurring); }} style={{
-              width: 48, height: 28, borderRadius: 14, cursor: 'pointer',
-              background: isRecurring ? 'var(--accent)' : 'var(--border)',
-              position: 'relative', transition: 'background 0.25s ease', flexShrink: 0,
-            }}>
+          {isEditing && initialTx?.recurringStopped ? (
+            <>
               <div style={{
-                position: 'absolute', top: 3, left: isRecurring ? 23 : 3,
-                width: 22, height: 22, borderRadius: '50%', background: '#fff',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
-                transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)',
-              }} />
-            </div>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
-              {isRecurring ? 'This transaction repeats' : 'One-time transaction'}
-            </span>
-          </div>
-          {isRecurring && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {['weekly', 'monthly', 'yearly'].map(freq => (
-                <button key={freq} onClick={() => setRecurFreq(freq)} style={{
-                  flex: 1, padding: '8px 6px', borderRadius: 10,
-                  background: recurFreq === freq ? 'var(--accent-light)' : 'var(--surface2)',
-                  color: recurFreq === freq ? 'var(--accent)' : 'var(--text-secondary)',
-                  border: recurFreq === freq ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
-                  fontSize: 12, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize',
-                  transition: 'all 0.15s ease',
-                }}>{freq}</button>
-              ))}
-            </div>
+                padding: '12px 14px', borderRadius: 12,
+                background: 'var(--surface2)', border: '1px solid var(--border)',
+                fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5,
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}>
+                  <rect x="6" y="6" width="12" height="12" rx="1.5"/>
+                </svg>
+                <span>Recurring stopped. No new entries will be auto-generated. Past entries are kept in your history.</span>
+              </div>
+              <button
+                onClick={() => {
+                  warningTap();
+                  if (!window.confirm('Reactivate this recurring entry?\n\nNew occurrences will start being created on the original schedule.')) return;
+                  if (onReactivateRecurringChain) onReactivateRecurringChain(initialTx);
+                  onClose();
+                }}
+                style={{
+                  width: '100%', marginTop: 10, padding: '10px 14px',
+                  borderRadius: 10, background: 'var(--accent-light)',
+                  color: 'var(--accent)', border: '1px solid rgba(10,108,255,0.2)',
+                  fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                </svg>
+                Reactivate Recurring
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div onClick={() => { lightTap(); setIsRecurring(!isRecurring); }} style={{
+                  width: 48, height: 28, borderRadius: 14, cursor: 'pointer',
+                  background: isRecurring ? 'var(--accent)' : 'var(--border)',
+                  position: 'relative', transition: 'background 0.25s ease', flexShrink: 0,
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 3, left: isRecurring ? 23 : 3,
+                    width: 22, height: 22, borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                    transition: 'left 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+                  }} />
+                </div>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+                  {isRecurring ? 'This transaction repeats' : 'One-time transaction'}
+                </span>
+              </div>
+              {isRecurring && (
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  {['weekly', 'monthly', 'yearly'].map(freq => (
+                    <button key={freq} onClick={() => setRecurFreq(freq)} style={{
+                      flex: 1, padding: '8px 6px', borderRadius: 10,
+                      background: recurFreq === freq ? 'var(--accent-light)' : 'var(--surface2)',
+                      color: recurFreq === freq ? 'var(--accent)' : 'var(--text-secondary)',
+                      border: recurFreq === freq ? '1.5px solid var(--accent)' : '1.5px solid var(--border)',
+                      fontSize: 12, fontWeight: 700, cursor: 'pointer', textTransform: 'capitalize',
+                      transition: 'all 0.15s ease',
+                    }}>{freq}</button>
+                  ))}
+                </div>
+              )}
+              {/* Stop Recurring — only when editing an existing active
+                  recurring tx. Sets recurringStopped on EVERY chain member
+                  via the App.jsx handler, so the whole chain halts in one
+                  tap and every member's edit screen shows the stopped UI. */}
+              {isEditing && initialTx?.recurring && (
+                <button
+                  onClick={() => {
+                    warningTap();
+                    if (!window.confirm('Stop this recurring entry?\n\nNo new occurrences will be created. Past entries are kept.')) return;
+                    if (onStopRecurringChain) onStopRecurringChain(initialTx);
+                    onClose();
+                  }}
+                  style={{
+                    width: '100%', marginTop: 12, padding: '10px 14px',
+                    borderRadius: 10, background: 'rgba(239,68,68,0.08)',
+                    color: 'var(--danger)', border: '1px solid rgba(239,68,68,0.18)',
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="6" y="6" width="12" height="12" rx="1.5"/>
+                  </svg>
+                  Stop Recurring
+                </button>
+              )}
+            </>
           )}
         </div>
 

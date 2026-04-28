@@ -1,4 +1,37 @@
 import React, { useState } from 'react';
+import { Capacitor } from '@capacitor/core';
+import { Browser } from '@capacitor/browser';
+
+// Public store listings. Sourced from the live App Store / Play Store URLs.
+const APP_STORE_URL  = 'https://apps.apple.com/us/app/coinova/id6762043129';
+const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.coinova.app';
+
+function getStoreUrl() {
+  // Prefer Capacitor's platform reading on native; fall back to a UA sniff
+  // for the PWA / web preview so users on an Android browser still get the
+  // Play Store and iOS Safari users get the App Store.
+  try {
+    const p = Capacitor?.getPlatform?.();
+    if (p === 'ios') return APP_STORE_URL;
+    if (p === 'android') return PLAY_STORE_URL;
+  } catch {}
+  if (typeof navigator !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    if (/android/i.test(ua)) return PLAY_STORE_URL;
+    if (/iphone|ipad|ipod/i.test(ua)) return APP_STORE_URL;
+  }
+  return APP_STORE_URL;
+}
+
+async function openStorePage() {
+  const url = getStoreUrl();
+  try {
+    // In-app browser on native (smoother UX than kicking out to Safari/Chrome).
+    await Browser.open({ url });
+  } catch {
+    try { window.open(url, '_blank'); } catch {}
+  }
+}
 
 export default function RateSheet({ currentUser, onClose }) {
   const [rating, setRating] = useState(0);
@@ -24,8 +57,21 @@ export default function RateSheet({ currentUser, onClose }) {
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ fontSize: 56, marginBottom: 16 }}>🎉</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Thank you!</div>
-            <div style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.6, maxWidth: 280, margin: '0 auto 24px' }}>{rating >= 4 ? 'We\'re glad you\'re enjoying Coinova!' : 'We\'ll work hard to improve your experience.'}</div>
-            <button onClick={onClose} style={{ padding: '12px 32px', borderRadius: 12, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+            <div style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.6, maxWidth: 280, margin: '0 auto 24px' }}>{rating >= 4 ? 'We\'re glad you\'re enjoying Coinova! Would you mind sharing your rating publicly so others can find the app?' : 'We\'ll work hard to improve your experience.'}</div>
+            {rating >= 4 && (
+              <button
+                onClick={openStorePage}
+                style={{ padding: '12px 24px', borderRadius: 12, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 10, width: '100%', maxWidth: 280 }}
+              >
+                Rate on the {getStoreUrl() === APP_STORE_URL ? 'App Store' : 'Play Store'}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              style={{ padding: '12px 24px', borderRadius: 12, background: rating >= 4 ? 'transparent' : 'var(--accent)', color: rating >= 4 ? 'var(--text-tertiary)' : '#fff', border: rating >= 4 ? '1px solid var(--border)' : 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', width: '100%', maxWidth: 280 }}
+            >
+              Done
+            </button>
           </div>
         ) : (
           <div style={{ textAlign: 'center', padding: '20px 0', width: '100%', maxWidth: 320 }}>
@@ -40,6 +86,15 @@ export default function RateSheet({ currentUser, onClose }) {
             {rating > 0 && <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 16 }}>{rating === 5 ? 'Amazing! 🤩' : rating === 4 ? 'Great! 😊' : rating === 3 ? 'Good 👍' : rating === 2 ? 'Could be better 🤔' : 'We\'ll do better 😔'}</div>}
             {rating > 0 && <textarea value={feedback} onChange={e => setFeedback(e.target.value)} placeholder={rating >= 4 ? 'What do you love about Coinova? (optional)' : 'How can we improve? (optional)'} maxLength={500} rows={3} style={{ width: '100%', padding: '12px 14px', borderRadius: 12, background: 'var(--surface2)', border: '1.5px solid var(--border)', color: 'var(--text-primary)', fontSize: 13, outline: 'none', resize: 'none', lineHeight: 1.5, boxSizing: 'border-box', marginBottom: 16 }} />}
             {rating > 0 && <button onClick={handleSubmit} style={{ width: '100%', padding: 14, borderRadius: 12, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Submit Feedback</button>}
+            <div
+              onClick={openStorePage}
+              style={{ marginTop: 18, fontSize: 12, color: 'var(--text-tertiary)', cursor: 'pointer' }}
+            >
+              Or rate us directly on the{' '}
+              <span style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                {getStoreUrl() === APP_STORE_URL ? 'App Store →' : 'Play Store →'}
+              </span>
+            </div>
           </div>
         )}
       </div>

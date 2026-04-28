@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import DonutChart from '../components/DonutChart';
 import TransactionItem from '../components/TransactionItem';
 import { CATEGORIES, CURRENCIES, formatCurrency, groupByCategory } from '../data/transactions';
@@ -7,6 +7,7 @@ import { lightTap } from '../utils/haptics';
 import AnimatedNumber from '../components/AnimatedNumber';
 import { generateInsights } from '../utils/insightEngine';
 import { localYMD } from '../utils/date';
+import { getWeekStart, startOfWeek } from '../utils/weekStart';
 
 const DATE_PERIODS = [
   { id: 'today', label: 'Today' },
@@ -18,7 +19,7 @@ const DATE_PERIODS = [
 const VIEW_MODES = ['All', 'Expense', 'Income'];
 
 
-function filterByPeriod(transactions, period) {
+function filterByPeriod(transactions, period, weekStart = 1) {
   const now = new Date();
   const localStr = d => {
     const y = d.getFullYear();
@@ -30,11 +31,9 @@ function filterByPeriod(transactions, period) {
 
   if (period === 'today') return transactions.filter(t => t.date === today);
   if (period === 'week') {
-    const day = now.getDay();
-    const mon = new Date(now);
-    mon.setDate(now.getDate() - ((day + 6) % 7));
-    const monStr = localStr(mon);
-    return transactions.filter(t => t.date >= monStr && t.date <= today);
+    const start = startOfWeek(now, weekStart);
+    const startStr = localStr(start);
+    return transactions.filter(t => t.date >= startStr && t.date <= today);
   }
   if (period === 'month') {
     const firstDay = localStr(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -58,13 +57,28 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyF
   const [viewMode, setViewMode] = useState('All');
   const [selectedBar, setSelectedBar] = useState(null);
 
+  // Week-start preference (0=Sun, 1=Mon, 6=Sat). Auto-detects from device
+  // locale on first run; persists to localStorage when the user changes it
+  // in Profile. Re-reads on the broadcast event so the Home filter +
+  // weekly chart pick up the new value without remounting.
+  const [weekStart, setWeekStartState] = useState(() => getWeekStart(currentUser?.uid));
+  useEffect(() => {
+    function handler() { setWeekStartState(getWeekStart(currentUser?.uid)); }
+    window.addEventListener('coinova-week-start-change', handler);
+    window.addEventListener('coinova-data-sync', handler);
+    return () => {
+      window.removeEventListener('coinova-week-start-change', handler);
+      window.removeEventListener('coinova-data-sync', handler);
+    };
+  }, [currentUser?.uid]);
+
   // Merge built-in + custom categories
   const allCategories = useMemo(() => {
     if (!customCategories?.length) return CATEGORIES;
     return { ...CATEGORIES, ...Object.fromEntries(customCategories.map(c => [c.id, c])) };
   }, [customCategories]);
 
-  const filtered = useMemo(() => filterByPeriod(transactions, datePeriod), [transactions, datePeriod]);
+  const filtered = useMemo(() => filterByPeriod(transactions, datePeriod, weekStart), [transactions, datePeriod, weekStart]);
 
   const totalExpense = useMemo(
     () => filtered.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
@@ -125,7 +139,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyF
         days.push(localStr(d));
       }
     } else if (datePeriod === 'week') {
-      const offset = (now.getDay() + 6) % 7;
+      const offset = (now.getDay() - weekStart + 7) % 7;
       for (let i = 0; i <= offset; i++) {
         const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - offset + i);
         days.push(localStr(d));
@@ -149,7 +163,7 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyF
       date,
       amount: relevant.filter(t => t.date === date).reduce((s, t) => s + t.amount, 0),
     }));
-  }, [filtered, datePeriod, viewMode]);
+  }, [filtered, datePeriod, viewMode, weekStart]);
 
   return (
     <div className="screen-content safe-top" role="main" style={{ padding: '0 20px 20px' }}>
@@ -403,35 +417,65 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyF
         );
       })()}
 
-      {/* Upcoming Bills (from recurring transactions) */}
+      {/* Upcoming Bills (from recurring transactions).
+          Groups recurring transactions into chains by title+category+amount+freq
+          and shows ONE upcoming row per chain. Excludes any chain that has
+          been stopped (a chain member has recurringStopped: true). Each row
+          is tappable — opens the most-recent occurrence in the edit screen,
+          where the user can change the amount, change the frequency, or tap
+          Stop Recurring to halt the whole chain. */}
       {(() => {
-        const recurring = transactions.filter(t => t.recurring);
-        if (recurring.length === 0) return null;
         const today = new Date();
         const todayStr = localYMD(today);
-        const upcoming = recurring.map(t => {
-          const lastDate = new Date(t.date);
+        // Group by chain identifier and skip stopped chains.
+        const chains = new Map();
+        for (const t of transactions) {
+          if (!t || !t.recurring) continue;
+          // Same chain-key normalisation as App.recurringChainKey — keeps
+          // Upcoming Bills consistent with the auto-generator and the
+          // notification scheduler so a single subscription shows once
+          // (not split into separate "Netflix" / "netflix " chains).
+          const title = String(t.title || '').trim().toLowerCase();
+          const category = String(t.category || '').trim().toLowerCase();
+          const cents = Math.round((Number(t.amount) || 0) * 100);
+          const freq = String(t.recurFreq || 'monthly').trim().toLowerCase();
+          const key = `${title}|${category}|${cents}|${freq}`;
+          if (!chains.has(key)) chains.set(key, []);
+          chains.get(key).push(t);
+        }
+        const upcoming = [];
+        for (const [, list] of chains) {
+          if (list.some(t => t.recurringStopped)) continue;
+          // Anchor on the newest occurrence and project forward to find the next due date.
+          const anchor = list.slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
+          const lastDate = new Date(anchor.date);
           let next = new Date(lastDate);
-          // Find the next occurrence after today
           while (localYMD(next) <= todayStr) {
-            if (t.recurFreq === 'weekly') next.setDate(next.getDate() + 7);
-            else if (t.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
-            else next.setMonth(next.getMonth() + 1);
+            if (anchor.recurFreq === 'weekly')      next.setDate(next.getDate() + 7);
+            else if (anchor.recurFreq === 'yearly') next.setFullYear(next.getFullYear() + 1);
+            else                                    next.setMonth(next.getMonth() + 1);
           }
           const nextStr = localYMD(next);
           const daysUntil = Math.ceil((next - today) / (1000 * 60 * 60 * 24));
-          const cat = allCategories[t.category] || { label: t.category, icon: '📦', color: '#6B7280' };
-          return { ...t, nextDate: nextStr, daysUntil, cat };
-        }).sort((a, b) => a.daysUntil - b.daysUntil).slice(0, 5);
+          const cat = allCategories[anchor.category] || { label: anchor.category, icon: '📦', color: '#6B7280' };
+          upcoming.push({ ...anchor, nextDate: nextStr, daysUntil, cat });
+        }
+        if (upcoming.length === 0) return null;
+        upcoming.sort((a, b) => a.daysUntil - b.daysUntil);
+        const display = upcoming.slice(0, 5);
 
         return (
           <div className="card anim-fadeup" style={{ animationDelay: '0.18s', padding: '18px', marginBottom: 16 }}>
             <div className="section-header" style={{ marginBottom: 12 }}>
               <span className="section-title">Upcoming Bills</span>
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{recurring.length} recurring</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', fontWeight: 500 }}>{upcoming.length} recurring</span>
             </div>
-            {upcoming.map((bill, i) => (
-              <div key={bill.id + '_' + i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < upcoming.length - 1 ? '1px solid var(--border)' : 'none' }}>
+            {display.map((bill, i) => (
+              <div
+                key={bill.id + '_' + i}
+                onClick={() => onEdit && onEdit(bill)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i < display.length - 1 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}
+              >
                 <div style={{ width: 36, height: 36, borderRadius: 10, background: bill.cat.color + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
                   {bill.cat.icon}
                 </div>
@@ -453,6 +497,9 @@ export default function HomeScreen({ transactions, onEdit, onNavigate, onOpenMyF
                     {bill.daysUntil === 0 ? 'Today' : bill.daysUntil === 1 ? 'Tomorrow' : `In ${bill.daysUntil} days`}
                   </div>
                 </div>
+                <svg width="6" height="10" viewBox="0 0 7 12" fill="none" style={{ marginLeft: 4 }}>
+                  <path d="M1 1L6 6L1 11" stroke="var(--text-tertiary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
             ))}
           </div>
@@ -664,57 +711,243 @@ function SmartInsightWidget({ transactions, currency, allCategories, currentUser
     return out;
   }, [insights]);
 
-  // Reset + auto-rotate the page every 6s when there's more than one page.
+  // Native horizontal scroll-snap is the right primitive here. A
+  // JS-driven swipe (the previous attempt) gets cancelled by iOS
+  // WebView's own scroll detection mid-gesture — the WebView decides
+  // "this is a scroll" and silently fires pointercancel, so the swipe
+  // never completes. Letting the browser own the gesture means it
+  // always lands smoothly with native momentum, and dot navigation /
+  // auto-rotate just call scrollTo on the same element.
+  const scrollerRef = useRef(null);
+  // While we're moving the scroller programmatically (auto-rotate, dot
+  // tap), suppress the scroll listener so we don't fight ourselves.
+  const isProgrammaticScroll = useRef(false);
+  // True for ~250ms after the user drags the scroller. Used to swallow
+  // the click that iOS synthesises at the end of a swipe gesture so we
+  // don't accidentally open My Finance instead of paging.
+  const lastUserScrollAt = useRef(0);
+  // Pause auto-rotate for a window after the user interacts.
+  const [pauseUntil, setPauseUntil] = useState(0);
+
+  // Reset to page 0 whenever the insight set changes.
   useEffect(() => {
     setPageIdx(0);
-    if (pages.length <= 1) return;
-    const t = setInterval(() => setPageIdx(i => (i + 1) % pages.length), 6000);
-    return () => clearInterval(t);
+    if (scrollerRef.current) {
+      isProgrammaticScroll.current = true;
+      scrollerRef.current.scrollLeft = 0;
+      requestAnimationFrame(() => { isProgrammaticScroll.current = false; });
+    }
   }, [pages.length]);
 
-  function handleOpen() {
+  // Auto-rotate: scroll to the next page. Uses scrollTo with smooth
+  // behavior so the same animation runs whether it's the timer or a
+  // dot tap that triggered it.
+  useEffect(() => {
+    if (pages.length <= 1) return;
+    const t = setInterval(() => {
+      if (Date.now() < pauseUntil) return;
+      const el = scrollerRef.current;
+      if (!el) return;
+      const next = (pageIdx + 1) % pages.length;
+      isProgrammaticScroll.current = true;
+      el.scrollTo({ left: next * el.clientWidth, behavior: 'smooth' });
+      setPageIdx(next);
+      // Match the smooth-scroll completion (~350ms is generous on iOS).
+      setTimeout(() => { isProgrammaticScroll.current = false; }, 400);
+    }, 6000);
+    return () => clearInterval(t);
+  }, [pages.length, pageIdx, pauseUntil]);
+
+  // User-driven scroll → update active dot + swallow the next click.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    let timer = null;
+    function onScroll() {
+      if (isProgrammaticScroll.current) return;
+      lastUserScrollAt.current = Date.now();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const idx = Math.round(el.scrollLeft / el.clientWidth);
+        if (idx !== pageIdx && idx >= 0 && idx < pages.length) {
+          setPageIdx(idx);
+          setPauseUntil(Date.now() + 8000);
+        }
+      }, 80);
+    }
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (timer) clearTimeout(timer);
+    };
+  }, [pageIdx, pages.length]);
+
+  function onCardClick() {
+    // Swallow the click iOS fires at the end of a swipe.
+    if (Date.now() - lastUserScrollAt.current < 250) return;
     lightTap();
     if (onOpenMyFinance) onOpenMyFinance();
   }
 
-  const currentPage = pages[pageIdx] || pages[0] || [];
+  function jumpTo(i, e) {
+    e.stopPropagation();
+    const el = scrollerRef.current;
+    if (!el) return;
+    isProgrammaticScroll.current = true;
+    el.scrollTo({ left: i * el.clientWidth, behavior: 'smooth' });
+    setPageIdx(i);
+    setPauseUntil(Date.now() + 8000);
+    setTimeout(() => { isProgrammaticScroll.current = false; }, 400);
+  }
+
+  // Resolve a severity color (which insightEngine emits as either a CSS
+  // var() reference or a hex) into the same hex we can tint backgrounds
+  // and accent bars with. var() values fall through to a sensible default
+  // tone so the tinting still looks intentional.
+  function resolveTone(color) {
+    if (!color) return { solid: '#9CA3AF', tint: 'rgba(156,163,175,0.10)', border: 'rgba(156,163,175,0.22)' };
+    if (color.includes('--danger'))  return { solid: '#EF4444', tint: 'rgba(239,68,68,0.10)',  border: 'rgba(239,68,68,0.22)' };
+    if (color.includes('--success')) return { solid: '#10B981', tint: 'rgba(16,185,129,0.10)', border: 'rgba(16,185,129,0.22)' };
+    if (color.includes('--accent'))  return { solid: '#3B82F6', tint: 'rgba(59,130,246,0.10)', border: 'rgba(59,130,246,0.22)' };
+    if (color.includes('text-secondary')) return { solid: '#9CA3AF', tint: 'rgba(156,163,175,0.10)', border: 'rgba(156,163,175,0.20)' };
+    // Hex (e.g. amber #F59E0B) — convert to rgba tints.
+    const hex = color.replace('#', '');
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return { solid: color, tint: `rgba(${r},${g},${b},0.10)`, border: `rgba(${r},${g},${b},0.22)` };
+    }
+    return { solid: color, tint: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.08)' };
+  }
 
   return (
     <div
       data-tour="insights"
-      onClick={handleOpen}
+      onClick={onCardClick}
       className="card anim-fadeup"
       role="button"
-      aria-label="Open My Finance for full breakdown"
-      style={{ animationDelay: '0.14s', padding: '14px 16px', marginBottom: 16, cursor: 'pointer' }}
+      aria-label="Open My Finance for full breakdown. Swipe to navigate insights."
+      style={{ animationDelay: '0.14s', padding: '14px 0 12px', marginBottom: 16, cursor: 'pointer' }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, padding: '0 14px' }}>
         <span className="section-title" style={{ margin: 0 }}>Smart Insights</span>
-        <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>Open →</span>
+        <span style={{
+          fontSize: 11, color: 'var(--accent)', fontWeight: 600,
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+        }}>
+          Open <span style={{ fontSize: 13, lineHeight: 1 }}>→</span>
+        </span>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {currentPage.map((insight, i) => (
+      {/* Native horizontal scroll-snap carousel. Each page is a 100%-wide
+          flex item that snaps into place. The browser handles all swipe
+          physics — momentum, rubber-band, and snap-on-release — which
+          fixes the previous "swipe gets cancelled" issue caused by
+          fighting WebView's gesture detection from JS. */}
+      <div
+        ref={scrollerRef}
+        className="hide-scrollbar"
+        style={{
+          display: 'flex',
+          overflowX: pages.length > 1 ? 'auto' : 'hidden',
+          overflowY: 'hidden',
+          scrollSnapType: 'x mandatory',
+          WebkitOverflowScrolling: 'touch',
+          scrollBehavior: 'auto',
+          // Don't let horizontal swipes here trigger the page-level vertical
+          // scroll behavior; pan-x lets the carousel own horizontal motion.
+          touchAction: 'pan-x',
+        }}
+      >
+        {pages.map((page, pIdx) => (
           <div
-            key={`${pageIdx}-${i}`}
-            style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}
+            key={pIdx}
+            style={{
+              flex: '0 0 100%',
+              width: '100%',
+              scrollSnapAlign: 'start',
+              scrollSnapStop: 'always',
+              padding: '0 14px',
+              boxSizing: 'border-box',
+            }}
           >
-            <span style={{ fontSize: 16, lineHeight: 1.3, flexShrink: 0 }}>{insight.icon}</span>
-            <span style={{ fontSize: 12.5, fontWeight: 500, color: insight.color, lineHeight: 1.4 }}>
-              {insight.text}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {Array.from({ length: PAGE_SIZE }).map((_, i) => {
+                const insight = page[i];
+                if (!insight) {
+                  return (
+                    <div
+                      key={`empty-${pIdx}-${i}`}
+                      aria-hidden
+                      style={{ height: 52, visibility: 'hidden' }}
+                    />
+                  );
+                }
+                const tone = resolveTone(insight.color);
+                return (
+                  <div
+                    key={`${pIdx}-${i}`}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '0 10px',
+                      height: 52,
+                      borderRadius: 10,
+                      background: tone.tint,
+                      border: `1px solid ${tone.border}`,
+                      position: 'relative',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {/* Severity accent strip on the left */}
+                    <div style={{
+                      position: 'absolute', left: 0, top: 8, bottom: 8, width: 3,
+                      borderRadius: 2, background: tone.solid, opacity: 0.85,
+                    }} />
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 26, height: 26, borderRadius: 8,
+                      background: 'rgba(255,255,255,0.05)',
+                      fontSize: 14, lineHeight: 1, flexShrink: 0,
+                      marginLeft: 4,
+                    }}>{insight.icon}</span>
+                    <span style={{
+                      fontSize: 12.5, fontWeight: 500, color: 'var(--text-primary)',
+                      lineHeight: 1.35, letterSpacing: '-0.1px',
+                      display: '-webkit-box',
+                      WebkitBoxOrient: 'vertical',
+                      WebkitLineClamp: 2,
+                      overflow: 'hidden',
+                    }}>
+                      {insight.text}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ))}
       </div>
 
       {pages.length > 1 && (
-        <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 12 }}>
           {pages.map((_, i) => (
-            <div key={i} style={{
-              width: 5, height: 5, borderRadius: '50%',
-              background: i === pageIdx ? 'var(--accent)' : 'var(--border)',
-              transition: 'background 0.25s ease',
-            }} />
+            <button
+              key={i}
+              type="button"
+              onClick={(e) => jumpTo(i, e)}
+              aria-label={`Show insights page ${i + 1}`}
+              style={{
+                appearance: 'none', border: 'none', padding: 6, margin: -6,
+                background: 'transparent', cursor: 'pointer',
+              }}
+            >
+              <div style={{
+                width: i === pageIdx ? 14 : 5, height: 5, borderRadius: 3,
+                background: i === pageIdx ? 'var(--accent)' : 'var(--border)',
+                transition: 'width 0.3s cubic-bezier(0.32,0.72,0,1), background 0.25s ease',
+              }} />
+            </button>
           ))}
         </div>
       )}
